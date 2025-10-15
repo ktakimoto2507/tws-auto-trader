@@ -1,3 +1,5 @@
+# src/ib/options.py ーーー 完全版（置き換え）
+
 from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
@@ -19,16 +21,13 @@ class Underlying:
     currency: str = "USD"
 
 
-# src/ib/options.py 内の _underlying_price を差し替え
-
 def _underlying_price(ib: IB, und: Underlying) -> float:
     """
     現在値のロバスト取得:
       - ライブ購読が無ければ遅延データ(3)を要求
-      - last → (bid+ask)/2 → close の優先順位で価格を決定
+      - last → (bid+ask)/2 → close → marketPrice の優先順位で価格を決定
     """
     import math
-    from ib_insync import Stock
 
     # 遅延データ許可（ライブが無い環境でも数字が入る）
     try:
@@ -60,7 +59,6 @@ def _underlying_price(ib: IB, und: Underlying) -> float:
     raise RuntimeError(f"Cannot get market price for {und.symbol} (no live/delayed data)")
 
 
-
 def _nearest_expiry_friday(expirations: List[str], tz: ZoneInfo) -> str:
     """
     expirations: ['2025-10-17', ...]
@@ -88,15 +86,18 @@ def pick_option_contract(
     prefer_friday: bool = True,
     tz_name: str = "America/New_York",
     opt_exchange: str = "SMART",
+    *,
+    override_price: Optional[float] = None,  # ← 追加：手動/外部で決めた株価を優先使用
 ) -> Tuple[Option, float, str]:
     """
     ATM(+/-pct) のストライクを選んで Option 契約を返す。
     - right: 'C' or 'P'
     - pct_offset: 0.15 なら +15%（CallはOTM方向、PutはITM方向にずらす）
+    - override_price: ここに価格を渡すと、内部の株価取得をスキップしてその価格を使う
     戻り値: (Option契約, 使用ストライク, 使用満期[YYYY-MM-DD])
     """
     tz = ZoneInfo(tz_name)
-    und_px = _underlying_price(ib, und)
+    und_px = float(override_price) if override_price is not None else _underlying_price(ib, und)
 
     # Underlying の conId を取得
     und_contract = Stock(und.symbol, und.exchange, und.currency)
