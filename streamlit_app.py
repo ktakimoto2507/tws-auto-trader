@@ -35,15 +35,9 @@ from src.ib.options import Underlying, pick_option_contract, sell_option, _under
 log = get_logger("st")
 
 # 3) IBクライアント（接続）のセッション再利用
-def get_client() -> IBClient:
-    """
-    Streamlitセッション単位でIB接続を使い回す。
-    アプリ終了までdisconnectしない。
-    """
-    if "ib_client" not in st.session_state:
-        st.session_state["ib_client"] = IBClient()
-        st.session_state["ib_client"].connect()
-    return st.session_state["ib_client"]
+def get_client() -> IBClient | None:
+    """接続済みなら返す。未接続なら None。"""
+    return st.session_state.get("ib_client")
 
 # 4) ヘルパ
 def tail_log(path: Path, n: int = 200) -> str:
@@ -129,6 +123,35 @@ st.title("IB TWS – AutoTrader (Dashboard)")
 
 # Sidebar
 st.sidebar.header("Settings")
+# 接続設定（secretsがあればそれを初期値に）
+def _sget(key: str, default: str):
+    try:
+        return st.secrets.get(key, default)
+    except Exception:
+        return default
+
+host = st.sidebar.text_input("IB Host", _sget("IB_HOST", "127.0.0.1"))
+port = st.sidebar.number_input("IB Port", value=int(_sget("IB_PORT", "7497")), step=1)
+client_id = st.sidebar.number_input("Client ID", value=int(_sget("IB_CLIENT_ID", "10")), step=1)
+md_type = st.sidebar.selectbox("Market Data Type", [1,2,3,4], index=2)
+
+colA, colB = st.sidebar.columns(2)
+if colA.button("Connect"):
+    cfg = type("Tmp", (), {"host": host, "port": int(port), "client_id": int(client_id), "account": None})
+    cli = IBClient(cfg)  # 簡易cfg
+    try:
+        cli.connect(market_data_type=int(md_type))
+        st.session_state["ib_client"] = cli
+        st.success("Connected")
+    except Exception as e:
+        st.error(f"Connect failed: {e}")
+
+if colB.button("Disconnect"):
+    cli = get_client()
+    if cli:
+        cli.disconnect()
+        st.session_state.pop("ib_client", None)
+        st.info("Disconnected")
 budget_nugt = float(st.sidebar.text_input("Budget – NUGT (USD)", os.getenv("BUDGET_NUGT", "5000")))
 manual_toggle = st.sidebar.checkbox("Use manual price for NUGT", value=False)
 manual_price = float(st.sidebar.text_input("Manual price (NUGT)", "100.0")) if manual_toggle else None
@@ -148,31 +171,48 @@ st.sidebar.markdown("### Upcoming (NY time → Local)")
 for ny, local in next_weekly_times():
     st.sidebar.caption(f"Fri {ny.strftime('%Y-%m-%d %H:%M')} NY → {local.strftime('%Y-%m-%d %H:%M')} Local")
 
+# --- ここからタブ部分 丸ごと置換 ---------------------------------
 # Main tabs
 tab1, tab2, tab3 = st.tabs(["Account/Positions", "Open Orders", "Logs"])
 
 with tab1:
     st.subheader("Account & Positions")
-    if st.button("Refresh account / positions"):
-        st.experimental_rerun()
-    try:
-        acct_rows, pos_rows, ord_rows = get_account_snapshot()
-        key_tags = {"NetLiquidation", "AvailableFunds", "BuyingPower", "TotalCashValue", "SMA",
-                    "StockMarketValue", "OptionMarketValue", "GrossPositionValue", "RealizedPnL", "UnrealizedPnL"}
-        filt = [r for r in acct_rows if r["tag"] in key_tags]
-        st.table(filt)
-        st.write("Positions")
-        st.table(pos_rows if pos_rows else [{"info": "(No positions)"}])
-    except Exception as e:
-        st.error(f"取得エラー: {e}")
+
+    # 接続確認
+    cli = get_client()
+    if not cli:
+        st.info("未接続です。左のサイドバーから接続してください。")
+    else:
+        # 表示更新ボタン
+        if st.button("Refresh account / positions"):
+            st.experimental_rerun()
+
+        try:
+            acct_rows, pos_rows, _ = get_account_snapshot()
+            key_tags = {
+                "NetLiquidation", "AvailableFunds", "BuyingPower", "TotalCashValue", "SMA",
+                "StockMarketValue", "OptionMarketValue", "GrossPositionValue", "RealizedPnL", "UnrealizedPnL"
+            }
+            filt = [r for r in acct_rows if r["tag"] in key_tags]
+            st.write("Account Summary")
+            st.table(filt)
+            st.write("Positions")
+            st.table(pos_rows if pos_rows else [{"info": "(No positions)"}])
+        except Exception as e:
+            st.error(f"取得エラー: {e}")
 
 with tab2:
     st.subheader("Open Orders")
-    try:
-        _, _, ord_rows = get_account_snapshot()
-        st.table(ord_rows if ord_rows else [{"info": "(No open orders)"}])
-    except Exception as e:
-        st.error(f"取得エラー: {e}")
+
+    cli = get_client()
+    if not cli:
+        st.info("未接続です。左のサイドバーから接続してください。")
+    else:
+        try:
+            _, _, ord_rows = get_account_snapshot()
+            st.table(ord_rows if ord_rows else [{"info": "(No open orders)"}])
+        except Exception as e:
+            st.error(f"取得エラー: {e}")
 
 with tab3:
     st.subheader("Recent Logs (logs/app.log)")
@@ -180,4 +220,5 @@ with tab3:
         st.code(tail_log(Path("logs") / "app.log", n=300), language="log")
     else:
         st.caption("（サイドバーのチェックで表示）")
-# ーーー end ーーー
+# --- 置換ここまで --------------------------------------------------
+
