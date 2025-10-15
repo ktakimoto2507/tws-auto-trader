@@ -29,7 +29,7 @@ import streamlit as st
 
 from src.ib_client import IBClient
 from src.utils.logger import get_logger
-from src.ib.orders import StockSpec, market, stop_pct, new_oca_group
+from src.ib.orders import StockSpec, bracket_buy_with_stop
 from src.ib.options import Underlying, pick_option_contract, sell_option, _underlying_price
 
 log = get_logger("st")
@@ -90,14 +90,28 @@ def run_nugt_cc(budget: float, stop_pct_val: float = 0.06,
     qty_contracts = qty_shares // 100
     msgs.append(f"price≈{px:.2f}, budget={budget}, shares={qty_shares}, option_contracts={qty_contracts}")
 
-    oca = new_oca_group("COVERED")
+    #oca = new_oca_group("COVERED")
 
     # 1) 株 BUY（DRY）
-    market(cli.ib, spec, "BUY", qty_shares, dry_run=not live)
+    #market(cli.ib, spec, "BUY", qty_shares, dry_run=not live)
 
     # 2) 6% STP（DRY）
-    stop_pct(cli.ib, spec, qty_shares, reference_price=px, pct=stop_pct_val,
-             dry_run=not live, oca_group=oca)
+    #stop_pct(cli.ib, spec, qty_shares, reference_price=px, pct=stop_pct_val,
+    #         dry_run=not live, oca_group=oca)
+    # 1+2) 親子（ブランケット）：BUY → 親Fill後にSTOPを自動有効化
+    stop_price = round(px * (1 - stop_pct_val), 2)
+    parent, child, parent_trade = bracket_buy_with_stop(
+        ib=cli.ib,
+        spec=spec,
+        qty=qty_shares,
+        entry_type="MKT",      # すぐ約定を見たいなら "LMT" と lmt_price を指定
+        lmt_price=None,        # entry_type="LMT" のときだけ値を入れる
+        stop_price=stop_price,
+        tif="DAY",             # 長く持つなら "GTC"
+        outside_rth=True,      # 時間外も許可したいなら True
+        dry_run=not live,      # ← サイドバーの Live トグルで切り替え
+    )
+    msgs.append(f"Bracket: BUY({parent.orderType}) {qty_shares} → STOP {stop_price:.2f}")
 
     # 3) ATM CALL SELL（DRY）
     if qty_contracts >= 1:
