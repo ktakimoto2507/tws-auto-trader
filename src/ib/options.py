@@ -19,18 +19,46 @@ class Underlying:
     currency: str = "USD"
 
 
+# src/ib/options.py 内の _underlying_price を差し替え
+
 def _underlying_price(ib: IB, und: Underlying) -> float:
     """
-    スナップショットで現在値の近似を取得
+    現在値のロバスト取得:
+      - ライブ購読が無ければ遅延データ(3)を要求
+      - last → (bid+ask)/2 → close の優先順位で価格を決定
     """
+    import math
+    from ib_insync import Stock
+
+    # 遅延データ許可（ライブが無い環境でも数字が入る）
+    try:
+        ib.reqMarketDataType(3)  # 1=live, 2=frozen, 3=delayed, 4=delayed-frozen
+    except Exception:
+        pass
+
     contract = Stock(und.symbol, und.exchange, und.currency)
-    ticker = ib.reqMktData(contract, "", True, False)  # snapshot=True
-    ib.sleep(1.0)
-    price = ticker.marketPrice()
+    # snapshot=True にすると一回分を返す（高速）
+    ticker = ib.reqMktData(contract, "", True, False)
+    ib.sleep(1.2)  # データが埋まるまで少し待つ
+
+    # 候補を順に拾う
+    candidates = [
+        getattr(ticker, "last", None),
+        None if (getattr(ticker, "bid", None) is None or getattr(ticker, "ask", None) is None)
+        else (ticker.bid + ticker.ask) / 2,
+        getattr(ticker, "close", None),
+        ticker.marketPrice()  # ib_insyncの便利関数（NaNのこともある）
+    ]
+
+    # キャンセル（念のため）
     ib.cancelMktData(contract)
-    if price is None or price <= 0:
-        raise RuntimeError(f"Cannot get market price for {und.symbol}")
-    return float(price)
+
+    for px in candidates:
+        if px is not None and math.isfinite(px) and px > 0:
+            return float(px)
+
+    raise RuntimeError(f"Cannot get market price for {und.symbol} (no live/delayed data)")
+
 
 
 def _nearest_expiry_friday(expirations: List[str], tz: ZoneInfo) -> str:

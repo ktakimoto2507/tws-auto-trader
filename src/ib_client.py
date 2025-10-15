@@ -1,7 +1,8 @@
 ﻿# src/ib_client.py まるごと置換してOK（先頭～connectを修正）
 
 # --- ここは既に入れているはず。残しておいてOK ---
-import sys, asyncio
+import sys
+import asyncio
 if sys.platform.startswith("win"):
     try:
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
