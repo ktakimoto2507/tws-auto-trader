@@ -1,0 +1,9 @@
+symbol: NUGT
+exchange: SMART
+currency: USD
+budget_env: BUDGET_NUGT
+stop_pct: 0.06
+option_side: SELL
+option_type: CALL
+expiry_rule: next_weekly   # 直近の金曜週次
+strike_rule: ATM

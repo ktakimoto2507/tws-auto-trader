@@ -1,0 +1,9 @@
+symbol: UVIX
+exchange: SMART
+currency: USD
+budget_env: BUDGET_UVIX
+action: LONG_PUT
+expiry_rule: next_weekly_friday
+strike_rule: ATM
+stop_trigger: +0.15_underlying   # 原資産が+15%上昇でクローズ
+offset_action: SHORT_PUT         # その後P-を建てて相殺

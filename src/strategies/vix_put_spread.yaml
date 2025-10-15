@@ -1,0 +1,9 @@
+symbol: VIX
+exchange: CBOE
+currency: USD
+budget_env: BUDGET_VIX
+action: PUT_SPREAD
+timing: monthly_after_settlement  # SQ翌営業日にT1,T2,T3
+long_strike: ATM_plus_15pct
+short_strike: ATM
+take_action: close_short_if_long_ITM_15pct
