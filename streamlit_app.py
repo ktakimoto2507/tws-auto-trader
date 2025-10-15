@@ -1,12 +1,23 @@
 # streamlit_app.py
 from __future__ import annotations
+import sys, asyncio
+if sys.platform.startswith("win"):
+    try:
+        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+    except Exception:
+        pass
+try:
+    asyncio.get_event_loop()
+except RuntimeError:
+    asyncio.set_event_loop(asyncio.new_event_loop())
+
+
 import os
 from pathlib import Path
 from datetime import datetime, timedelta, time
 from zoneinfo import ZoneInfo
 
 import streamlit as st
-
 from src.ib_client import IBClient
 from src.utils.logger import get_logger
 from src.ib.orders import StockSpec, market, stop_pct, new_oca_group
@@ -159,3 +170,13 @@ with tab3:
         st.code(tail_log(Path("logs") / "app.log", n=300), language="log")
     else:
         st.caption("（サイドバーのチェックで表示）")
+
+def get_client() -> IBClient:
+    if "ib_client" not in st.session_state:
+        st.session_state["ib_client"] = IBClient()
+        st.session_state["ib_client"].connect()
+    return st.session_state["ib_client"]
+
+# 使う側
+cli = get_client()
+# ... 使い終わっても disconnect はしない（アプリ終了時でOK）

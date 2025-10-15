@@ -15,7 +15,7 @@ except RuntimeError:
     asyncio.set_event_loop(asyncio.new_event_loop())
 # ------------------------------------------------------------------
 
-from ib_insync import IB
+from ib_insync import IB, util      #utilを追加
 from .config import IBConfig
 from .utils.logger import get_logger
 
