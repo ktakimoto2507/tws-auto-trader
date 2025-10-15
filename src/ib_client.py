@@ -14,7 +14,7 @@ except RuntimeError:
     asyncio.set_event_loop(asyncio.new_event_loop())
 # ------------------------------------------------------
 
-from ib_insync import IB, util   # ★ utilを追加
+from ib_insync import IB, util
 from .config import IBConfig
 from .utils.logger import get_logger
 
@@ -25,7 +25,7 @@ class IBClient:
         self.cfg = cfg or IBConfig()
         self.ib = IB()
 
-    def connect(self, timeout: float = 20.0):
+    def connect(self, timeout: float = 20.0, market_data_type: int = 3):
         log.info(f"Connecting IB: host={self.cfg.host} port={self.cfg.port} clientId={self.cfg.client_id}")
         # ★ ここを connectAsync + util.run に
         util.run(self.ib.connectAsync(
@@ -34,7 +34,9 @@ class IBClient:
         ))
         if not self.ib.isConnected():
             raise RuntimeError("Failed to connect IB")
-        log.info("Connected")
+        # 1=リアル, 2=フローズン, 3=遅延, 4=遅延フローズン
+        self.ib.reqMarketDataType(market_data_type)
+        log.info(f"Connected (MDType={market_data_type})")
 
     def disconnect(self):
         try:
