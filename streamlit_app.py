@@ -66,7 +66,8 @@ def get_account_snapshot():
     } for o in orders]
     return acct_rows, pos_rows, ord_rows
 
-def run_nugt_cc_dry(budget: float, stop_pct_val: float = 0.06, manual_price: float | None = None) -> list[str]:
+def run_nugt_cc(budget: float, stop_pct_val: float = 0.06,
+                manual_price: float | None = None, live: bool = False) -> list[str]:
     """
     DRY RUN: 予算いっぱい現物→取得価格の6%下にSTP→ATMコール売り。
     manual_price があればそれを使用。無ければスナップショット価格を取得。
@@ -92,15 +93,17 @@ def run_nugt_cc_dry(budget: float, stop_pct_val: float = 0.06, manual_price: flo
     oca = new_oca_group("COVERED")
 
     # 1) 株 BUY（DRY）
-    market(cli.ib, spec, "BUY", qty_shares, dry_run=True)
+    market(cli.ib, spec, "BUY", qty_shares, dry_run=not live)
 
     # 2) 6% STP（DRY）
-    stop_pct(cli.ib, spec, qty_shares, reference_price=px, pct=stop_pct_val, dry_run=True, oca_group=oca)
+    stop_pct(cli.ib, spec, qty_shares, reference_price=px, pct=stop_pct_val,
+             dry_run=not live, oca_group=oca)
 
     # 3) ATM CALL SELL（DRY）
     if qty_contracts >= 1:
-        opt, strike, expiry = pick_option_contract(cli.ib, und, right="C", pct_offset=0.0, prefer_friday=True)
-        sell_option(cli.ib, opt, qty_contracts, dry_run=True)
+        opt, strike, expiry = pick_option_contract(cli.ib, und, right="C", pct_offset=0.0,
+                                                   prefer_friday=True, override_price=px)
+        sell_option(cli.ib, opt, qty_contracts, dry_run=not live)
         msgs.append(f"Option: CALL {strike} @ {expiry} x {qty_contracts} (SELL)")
     else:
         msgs.append("株数が100未満のためオプション売りはスキップ")
@@ -156,12 +159,15 @@ budget_nugt = float(st.sidebar.text_input("Budget – NUGT (USD)", os.getenv("BU
 manual_toggle = st.sidebar.checkbox("Use manual price for NUGT", value=False)
 manual_price = float(st.sidebar.text_input("Manual price (NUGT)", "100.0")) if manual_toggle else None
 show_logs = st.sidebar.checkbox("Show recent logs", value=True)
+live = st.sidebar.checkbox("Live orders (Paper/Real)", value=False,
+                           help="Off=DRY RUN（注文は送らない） / On=実注文（Paper/RealはTWSのログインに依存）")
 
 st.sidebar.markdown("### Manual Run")
-if st.sidebar.button("Run NUGT Covered Call (DRY RUN)"):
+if st.sidebar.button("Run NUGT Covered Call"):
     try:
-        msgs = run_nugt_cc_dry(budget_nugt, 0.06, manual_price)
-        st.success("NUGT Covered Call – DRY RUN 完了")
+        msgs = run_nugt_cc(budget_nugt, 0.06, manual_price, live=live)
+        st.success("NUGT Covered Call – " + ("LIVE（Paper/Real）" if live else "DRY RUN") + " 完了")
+
         for m in msgs:
             st.write("•", m)
     except Exception as e:
