@@ -115,3 +115,46 @@ def stop_pct(
 
     trade = ib.placeOrder(c, o)
     return trade.order
+
+# --- 親子（ブランケット）注文：BUY後にSTOPを自動有効化 -----------------
+def bracket_buy_with_stop(
+    ib: IB,
+    spec: StockSpec,
+    *,
+    qty: float,
+    entry_type: str = "MKT",        # "MKT"=成行 / "LMT"=指値
+    lmt_price: float | None = None, # entry_type="LMT" の時だけ必須
+    stop_price: float,              # 例: 参照価格×(1-0.06)
+    tif: str = "DAY",               # "DAY" or "GTC"
+    outside_rth: bool = False,      # 立会時間外も約定させるなら True
+    dry_run: bool = True,
+):
+    """
+    親: BUY（MKT/LMT） → 親がFillしたら 子: SELL STOP を自動で有効化する。
+    戻り値: (親Order, 子Order, parent_trade または None)
+    """
+    c = stock_contract(spec)
+
+    # 親（BUY）
+    parent = Order(action="BUY", orderType=entry_type, totalQuantity=qty, tif=tif)
+    if entry_type == "LMT":
+        assert lmt_price is not None, "entry_type='LMT' では lmt_price が必須です。"
+        parent.lmtPrice = float(lmt_price)
+    parent.outsideRth = bool(outside_rth)
+
+    # 子（STOP SELL）…親のFillが付くまで眠らせる
+    child = Order(action="SELL", orderType="STP", totalQuantity=qty, tif=tif)
+    child.auxPrice = float(stop_price)
+    child.outsideRth = bool(outside_rth)
+
+    if dry_run:
+        # 実送信しない（形だけ返す）
+        return parent, child, None
+
+    # 親を送信 → 返ってきた orderId を子の parentId に設定して送信
+    parent_trade = ib.placeOrder(c, parent)
+    child.parentId = parent_trade.order.orderId
+    ib.placeOrder(c, child)
+
+    return parent, child, parent_trade
+# ---------------------------------------------------------------------
