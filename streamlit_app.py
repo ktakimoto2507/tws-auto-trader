@@ -1,4 +1,17 @@
 # streamlit_app.py
+# --- 必ず一番上に置く ---
+import sys, asyncio
+if sys.platform.startswith("win"):
+    try:
+        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+    except Exception:
+        pass
+try:
+    asyncio.get_event_loop()
+except RuntimeError:
+    asyncio.set_event_loop(asyncio.new_event_loop())
+# -------------------------
+
 from __future__ import annotations
 import sys, asyncio
 if sys.platform.startswith("win"):
@@ -19,6 +32,17 @@ from zoneinfo import ZoneInfo
 
 import streamlit as st
 from src.ib_client import IBClient
+
+def get_client() -> IBClient:
+    """
+    Streamlitのセッション（ブラウザタブ）内でIB接続を使い回す。
+    1回connectしたら以後は再利用。disconnectはしない（アプリ終了時に切れる）。
+    """
+    if "ib_client" not in st.session_state:
+        st.session_state["ib_client"] = IBClient()
+        st.session_state["ib_client"].connect()
+    return st.session_state["ib_client"]
+
 from src.utils.logger import get_logger
 from src.ib.orders import StockSpec, market, stop_pct, new_oca_group
 from src.ib.options import Underlying, pick_option_contract, sell_option, _underlying_price
@@ -57,48 +81,53 @@ def get_account_snapshot():
     finally:
         cli.disconnect()
 
-def run_nugt_cc_dry(budget: float, stop_pct_val: float = 0.06) -> list[str]:
+import math
+from src.ib.options import _underlying_price, Underlying, pick_option_contract, sell_option
+from src.ib.orders import StockSpec, market, stop_pct, new_oca_group
+
+def run_nugt_cc_dry(budget: float, stop_pct_val: float = 0.06, manual_price: float | None = None) -> list[str]:
     """
-    DRY RUN: NUGT 現物を予算いっぱい買い → 取得価格の6%下にSTP → ATMコールをショート
+    DRY RUN: 予算いっぱい現物→取得価格の6%下にSTP→ATMコール売り。
+    manual_price があればそれを使用。無ければスナップショット価格を取得。
     """
     msgs: list[str] = []
-    cli = IBClient()
-    cli.connect()
-    try:
-        spec = StockSpec("NUGT", "SMART", "USD")
-        und  = Underlying("NUGT", "SMART", "USD")
+    cli = get_client()  # ★ 接続は使い回す
 
-        # 価格（スナップショット）。契約が無ければ手入力に切替
-        try:
-            px = _underlying_price(cli.ib, und)
-        except Exception as e:
-            raise RuntimeError("NUGTのマーケットデータが取得できません。契約が無い場合は『手入力モード』で実行してください。") from e
+    spec = StockSpec("NUGT", "SMART", "USD")
+    und  = Underlying("NUGT", "SMART", "USD")
 
-        qty_shares = max(1, int(budget // px))
-        qty_contracts = qty_shares // 100
+    # 価格：手動 > スナップショット
+    if manual_price is not None:
+        px = float(manual_price)
+    else:
+        px = _underlying_price(cli.ib, und)  # 契約が無いと例外になる
+    if not math.isfinite(px) or px <= 0:
+        raise RuntimeError(f"NUGT price is invalid: {px}")
 
-        msgs.append(f"price≈{px:.2f}, budget={budget}, shares={qty_shares}, option_contracts={qty_contracts}")
+    qty_shares = int(budget // px)
+    if qty_shares < 1:
+        raise RuntimeError(f"Budget too small: budget={budget}, price≈{px:.2f}")
 
-        # OCA（必要に応じて束ねる）
-        oca = new_oca_group("COVERED")
+    qty_contracts = qty_shares // 100
+    msgs.append(f"price≈{px:.2f}, budget={budget}, shares={qty_shares}, option_contracts={qty_contracts}")
 
-        # 1) 株: 成行 BUY（DRY）
-        market(cli.ib, spec, "BUY", qty_shares, dry_run=True)
+    oca = new_oca_group("COVERED")
 
-        # 2) STP: 取得価格の6%下（DRY）
-        stop_pct(cli.ib, spec, qty_shares, reference_price=px, pct=stop_pct_val, dry_run=True, oca_group=oca)
+    # 1) 株 BUY（DRY）
+    market(cli.ib, spec, "BUY", qty_shares, dry_run=True)
 
-        # 3) ATMコール SELL（DRY）
-        if qty_contracts >= 1:
-            opt, strike, expiry = pick_option_contract(cli.ib, und, right="C", pct_offset=0.0, prefer_friday=True)
-            sell_option(cli.ib, opt, qty_contracts, dry_run=True)
-            msgs.append(f"Option: CALL {strike} @ {expiry} x {qty_contracts} (SELL)")
-        else:
-            msgs.append("株数が100未満のためオプション売りはスキップ")
+    # 2) 6% STP（DRY）
+    stop_pct(cli.ib, spec, qty_shares, reference_price=px, pct=stop_pct_val, dry_run=True, oca_group=oca)
 
-        return msgs
-    finally:
-        cli.disconnect()
+    # 3) ATM CALL SELL（DRY）
+    if qty_contracts >= 1:
+        opt, strike, expiry = pick_option_contract(cli.ib, und, right="C", pct_offset=0.0, prefer_friday=True)
+        sell_option(cli.ib, opt, qty_contracts, dry_run=True)
+        msgs.append(f"Option: CALL {strike} @ {expiry} x {qty_contracts} (SELL)")
+    else:
+        msgs.append("株数が100未満のためオプション売りはスキップ")
+
+    return msgs
 
 def next_weekly_times(ny_hour: int = 9, ny_minute: int = 35, weeks: int = 6):
     tz_ny = ZoneInfo("America/New_York")
@@ -120,12 +149,17 @@ st.title("IB TWS – AutoTrader (Dashboard)")
 # Sidebar
 st.sidebar.header("Settings")
 budget_nugt = float(st.sidebar.text_input("Budget – NUGT (USD)", os.getenv("BUDGET_NUGT", "5000")))
+# ★追加: 手動価格モード
+manual_toggle = st.sidebar.checkbox("Use manual price for NUGT", value=False)
+manual_price = None
+if manual_toggle:
+    manual_price = float(st.sidebar.text_input("Manual price (NUGT)", "100.0"))
 show_logs = st.sidebar.checkbox("Show recent logs", value=True)
 
 st.sidebar.markdown("### Manual Run")
 if st.sidebar.button("Run NUGT Covered Call (DRY RUN)"):
     try:
-        msgs = run_nugt_cc_dry(budget_nugt)
+        msgs = run_nugt_cc_dry(budget_nugt, 0.06, manual_price)  # ★ manual_price を渡す
         st.success("NUGT Covered Call – DRY RUN 完了")
         for m in msgs:
             st.write("•", m)
