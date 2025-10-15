@@ -1,8 +1,15 @@
-﻿# src/ib_client.py まるごと置換してOK（先頭～connectを修正）
-
-# --- ここは既に入れているはず。残しておいてOK ---
+﻿# --- imports (E402対策: すべてのimportを最上部に集約) ---
 import sys
 import asyncio
+import math
+import time
+
+from ib_insync import IB, util, Stock, Contract, Ticker
+from .config import IBConfig
+from .utils.logger import get_logger
+# ------------------------------------------------------
+
+# --- Windows/Streamlit 用イベントループ対策（importの後に配置） ---
 if sys.platform.startswith("win"):
     try:
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
@@ -14,11 +21,50 @@ except RuntimeError:
     asyncio.set_event_loop(asyncio.new_event_loop())
 # ------------------------------------------------------
 
-from ib_insync import IB, util
-from .config import IBConfig
-from .utils.logger import get_logger
-
 log = get_logger("ib")
+# --- [P0-1] 契約ユーティリティ（ETF用：SMART+ARCA を統一） ---
+def make_etf(symbol: str) -> Contract:
+    """ETF/銘柄の契約を統一定義（SMART ルーティング + primaryExchange=ARCA）"""
+    return Stock(symbol, "SMART", "USD", primaryExchange="ARCA")
+
+def qualify_or_raise(ib: IB, c: Contract) -> Contract:
+    """qualifyContracts の安全ラッパ。失敗なら例外。"""
+    res = ib.qualifyContracts(c)
+    if not res or not getattr(res[0], "conId", None):
+        raise RuntimeError(f"Failed to qualify contract: {c}")
+    return res[0]
+# ----------------------------------------------------------------
+
+# --- [P0-2/3] 価格フォールバック決定 & ティック待ち ---
+
+def resolve_price(t: Ticker) -> float | None:
+    """last -> close -> marketPrice -> mid((bid+ask)/2) の順で決定"""
+    for p in (t.last, t.close, t.marketPrice()):
+        if isinstance(p, (int, float)) and math.isfinite(p) and p > 0:
+            return float(p)
+    if isinstance(t.bid, (int, float)) and isinstance(t.ask, (int, float)):
+        if math.isfinite(t.bid) and math.isfinite(t.ask) and t.bid > 0 and t.ask > 0:
+            return (t.bid + t.ask) / 2
+    return None
+
+def wait_price(ib: IB, c: Contract, timeout: float = 12.0, poll: float = 0.25) -> tuple[float | None, Ticker]:
+    """
+    ストリーミングMDを要求して、timeout まで価格決定を待つ。
+    connect() で MDType は既に 3（遅延）に設定済みの前提。
+    """
+    ib.reqMktData(c, "", False, False)  # streaming
+    t0 = time.time()
+    t: Ticker | None = None
+    while time.time() - t0 < timeout:
+        ib.waitOnUpdate(timeout=1)
+        t = ib.ticker(c)
+        px = resolve_price(t)
+        if px:
+            return px, t
+        time.sleep(poll)
+    return None, t if t else ib.ticker(c)
+# ----------------------------------------------------------------
+
 
 class IBClient:
     def __init__(self, cfg: IBConfig | None = None):
@@ -71,3 +117,11 @@ class IBClient:
 
     def fetch_open_orders(self):
         return self.ib.openOrders()
+    
+        # --- [任意] シンボルを渡して価格だけ取るワンライナー ---
+    def fetch_price_for(self, symbol: str, timeout: float = 12.0) -> tuple[float | None, Ticker, Contract]:
+        c = make_etf(symbol)
+        qc = qualify_or_raise(self.ib, c)
+        px, t = wait_price(self.ib, qc, timeout=timeout)
+        return px, t, qc
+

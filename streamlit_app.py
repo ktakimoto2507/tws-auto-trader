@@ -21,13 +21,12 @@ except RuntimeError:
 # 2) 通常のインポート
 import os
 import math
+import streamlit as st
+
 from pathlib import Path
 from datetime import datetime, timedelta, time
 from zoneinfo import ZoneInfo
-
-import streamlit as st
-
-from src.ib_client import IBClient
+from src.ib_client import IBClient, make_etf, qualify_or_raise, wait_price
 from src.utils.logger import get_logger
 from src.ib.orders import StockSpec, bracket_buy_with_stop
 from src.ib.options import Underlying, pick_option_contract, sell_option, _underlying_price
@@ -175,6 +174,10 @@ manual_price = float(st.sidebar.text_input("Manual price (NUGT)", "100.0")) if m
 show_logs = st.sidebar.checkbox("Show recent logs", value=True)
 live = st.sidebar.checkbox("Live orders (Paper/Real)", value=False,
                            help="Off=DRY RUN（注文は送らない） / On=実注文（Paper/RealはTWSのログインに依存）")
+# .env の DRY_RUN を見て“デフォルトの意図”を明示（実際の発注可否は live チェックに依存）
+ENV_DRY = os.getenv("DRY_RUN", "true").lower() == "true"
+mode_text = "DRY RUN（env=DRY_RUN=true）" if ENV_DRY else "LIVE準備（env=DRY_RUN=false）"
+st.sidebar.markdown(f"**Env Mode**: {mode_text}")
 
 st.sidebar.markdown("### Manual Run")
 if st.sidebar.button("Run NUGT Covered Call"):
@@ -193,7 +196,54 @@ for ny, local in next_weekly_times():
 
 # --- ここからタブ部分 丸ごと置換 ---------------------------------
 # Main tabs
-tab1, tab2, tab3 = st.tabs(["Account/Positions", "Open Orders", "Logs"])
+tab_price, tab1, tab2, tab3 = st.tabs(["Price (NUGT/TMF)", "Account/Positions", "Open Orders", "Logs"])
+
+with tab_price:
+    st.subheader("Price Probe (Delayed MD)")
+
+    cli = get_client()
+    if not cli:
+        st.info("未接続です。左サイドバーから接続してください。")
+    else:
+        col1, col2, col3 = st.columns([2,1,1])
+        with col1:
+            symbol = st.selectbox("Symbol", ["NUGT", "TMF"], index=0, key="price_symbol")
+        with col2:
+            timeout_sec = st.number_input("Timeout (sec)", min_value=3.0, max_value=30.0, value=12.0, step=0.5)
+        with col3:
+            probe_btn = st.button("価格取得（待機実行）", use_container_width=True)
+
+        if probe_btn:
+            try:
+                c = make_etf(symbol)
+                qc = qualify_or_raise(cli.ib, c)
+                px, t = wait_price(cli.ib, qc, timeout=float(timeout_sec))
+                st.session_state[f"price:{symbol}"] = px
+                st.session_state[f"ticker:{symbol}"] = {
+                    "last": t.last, "bid": t.bid, "ask": t.ask, "close": t.close
+                }
+                if px:
+                    st.success(f"{symbol} 決定価格: {px:.4f}")
+                else:
+                    st.warning(f"{symbol} の価格が timeout({timeout_sec:.1f}s) 内に確定しませんでした。")
+            except Exception as e:
+                st.error(f"価格取得エラー: {e}")
+
+        px = st.session_state.get(f"price:{symbol}")
+        tick = st.session_state.get(f"ticker:{symbol}", {})
+        valid = isinstance(px, (int, float)) and px and px > 0
+
+        met1, met2, met3, met4, met5 = st.columns(5)
+        met1.metric("決定価格", f"{px:.4f}" if valid else "—")
+        met2.metric("last",  f"{tick.get('last'):.4f}"  if tick.get("last")  else "—")
+        met3.metric("close", f"{tick.get('close'):.4f}" if tick.get("close") else "—")
+        met4.metric("bid",   f"{tick.get('bid'):.4f}"   if tick.get("bid")   else "—")
+        met5.metric("ask",   f"{tick.get('ask'):.4f}"   if tick.get("ask")   else "—")
+
+        # 価格が確定するまで発注不可の可視フラグ
+        st.session_state["can_trade"] = bool(valid)
+        st.caption("※ 決定価格は last→close→mid((bid+ask)/2) の順でフォールバックして決定します。")
+
 
 with tab1:
     st.subheader("Account & Positions")
