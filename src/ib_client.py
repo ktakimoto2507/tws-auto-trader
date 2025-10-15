@@ -25,18 +25,35 @@ class IBClient:
         self.cfg = cfg or IBConfig()
         self.ib = IB()
 
-    def connect(self, timeout: float = 20.0, market_data_type: int = 3):
-        log.info(f"Connecting IB: host={self.cfg.host} port={self.cfg.port} clientId={self.cfg.client_id}")
-        # ★ ここを connectAsync + util.run に
-        util.run(self.ib.connectAsync(
-            self.cfg.host, self.cfg.port,
-            clientId=self.cfg.client_id, timeout=timeout, readonly=False
-        ))
-        if not self.ib.isConnected():
-            raise RuntimeError("Failed to connect IB")
-        # 1=リアル, 2=フローズン, 3=遅延, 4=遅延フローズン
-        self.ib.reqMarketDataType(market_data_type)
-        log.info(f"Connected (MDType={market_data_type})")
+    def connect(self, timeout: float = 20.0, market_data_type: int = 3, max_try_ids: int = 10):
+        """
+        clientId が重複したら +1 して最大 max_try_ids 回まで自動リトライ。
+        """
+        base_id = int(self.cfg.client_id)
+        last_err: Exception | None = None
+        for offset in range(max_try_ids):
+            cid = base_id + offset
+            log.info(f"Connecting IB: host={self.cfg.host} port={self.cfg.port} clientId={cid}")
+            try:
+                util.run(self.ib.connectAsync(
+                    self.cfg.host, self.cfg.port,
+                    clientId=cid, timeout=timeout, readonly=False
+                ))
+                if self.ib.isConnected():
+                    # 1=リアル, 2=フローズン, 3=遅延, 4=遅延フローズン
+                    self.ib.reqMarketDataType(market_data_type)
+                    log.info(f"Connected (clientId={cid}, MDType={market_data_type})")
+                    # 実際に使った clientId を保持
+                    self.cfg.client_id = cid
+                    return
+            except Exception as e:
+                last_err = e
+                # 326（Client ID already in use）などは次のIDで続行
+                try:
+                    self.ib.disconnect()
+                except Exception:
+                    pass
+        raise RuntimeError(f"Failed to connect IB after trying {max_try_ids} clientIds") from last_err
 
     def disconnect(self):
         try:
