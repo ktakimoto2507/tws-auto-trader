@@ -1,25 +1,28 @@
-﻿# --- imports (E402対策: すべてのimportを最上部に集約) ---
+﻿# --- Windows用イベントループ初期化（ib_insync安全対策）---
 import sys
 import asyncio
+if sys.platform.startswith("win"):
+    try:
+        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+    except Exception:
+        pass
+
+# ❷ ここが重要：ループが無ければ新規作成して設定
+try:
+    asyncio.get_event_loop()
+except RuntimeError:
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
 import math
 import time
 
 from ib_insync import IB, util, Stock, Contract, Ticker
 from .config import IBConfig
 from .utils.logger import get_logger
+from .utils.loop import ensure_event_loop
 # ------------------------------------------------------
 
-# --- Windows/Streamlit 用イベントループ対策（importの後に配置） ---
-if sys.platform.startswith("win"):
-    try:
-        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
-    except Exception:
-        pass
-try:
-    asyncio.get_event_loop()
-except RuntimeError:
-    asyncio.set_event_loop(asyncio.new_event_loop())
-# ------------------------------------------------------
+# （※ ここは削除。ループ初期化は “import ib_insync より前” の一箇所だけで十分）
 
 log = get_logger("ib")
 # --- [P0-1] 契約ユーティリティ（ETF用：SMART+ARCA を統一） ---
@@ -97,38 +100,51 @@ def wait_price(ib: IB, c: Contract, timeout: float = 12.0, poll: float = 0.25) -
 class IBClient:
     def __init__(self, cfg: IBConfig | None = None):
         self.cfg = cfg or IBConfig()
-        self.ib = IB()
+        self.ib: IB | None = None   # ← まだ生成しない（Streamlitスレッドでループ未定義）
 
     def connect(self, timeout: float = 20.0, market_data_type: int = 3, max_try_ids: int = 10):
         """
         clientId が重複したら +1 して最大 max_try_ids 回まで自動リトライ。
+        *同期版* connect() を使い、コルーチン未待機の警告を根本排除。
         """
+        log.info("CONNECT_MODE=sync (IB.connect)")
         base_id = int(self.cfg.client_id)
         last_err: Exception | None = None
+
+        # ★ Streamlitのスレッドでループを再設定＋IBをここで生成
+        import asyncio
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+        self.ib = IB()
+
         for offset in range(max_try_ids):
             cid = base_id + offset
             log.info(f"Connecting IB: host={self.cfg.host} port={self.cfg.port} clientId={cid}")
             try:
-                util.run(self.ib.connectAsync(
-                    self.cfg.host, self.cfg.port,
-                    clientId=cid, timeout=timeout, readonly=False
-                ))
-                if self.ib.isConnected():
-                    # 1=リアル, 2=フローズン, 3=遅延, 4=遅延フローズン
-                    self.ib.reqMarketDataType(market_data_type)
+                # 同期接続（戻り値は bool）。失敗時は False or 例外。
+                ok = self.ib.connect(
+                    self.cfg.host,
+                    int(self.cfg.port),
+                    clientId=cid,
+                    timeout=timeout,
+                    readonly=False,
+                )
+                if ok and self.ib.isConnected():
+                    self.ib.reqMarketDataType(market_data_type)  # 1=RT,2=Frozen,3=Delayed,4=DelayedFrozen
                     log.info(f"Connected (clientId={cid}, MDType={market_data_type})")
-                    # 実際に使った clientId を保持
                     self.cfg.client_id = cid
                     return
             except Exception as e:
                 last_err = e
-                # 326（Client ID already in use）などは次のIDで続行
-                try:
-                    self.ib.disconnect()
-                except Exception:
-                    pass
+            # 次のIDで再挑戦前に明示切断
+            try:
+                self.ib.disconnect()
+            except Exception:
+                pass
         raise RuntimeError(f"Failed to connect IB after trying {max_try_ids} clientIds") from last_err
-
     def disconnect(self):
         try:
             self.ib.disconnect()
@@ -137,17 +153,21 @@ class IBClient:
             log.warning(f"Disconnect error: {e}")
 
     def fetch_account_summary(self):
+        ensure_event_loop()
         acct = getattr(self.cfg, "account", None)
         return self.ib.accountSummary(acct) if acct else self.ib.accountSummary()
 
     def fetch_positions(self):
+        ensure_event_loop()
         return self.ib.positions()
 
     def fetch_open_orders(self):
+        ensure_event_loop()
         return self.ib.openOrders()
 
     # --- [任意] シンボルを渡して価格だけ取るワンライナー ---
     def fetch_price_for(self, symbol: str, timeout: float = 12.0) -> tuple[float | None, Ticker, Contract]:
+        ensure_event_loop()
         c = make_etf(symbol)
         qc = qualify_or_raise(self.ib, c)
         px, t = wait_price(self.ib, qc, timeout=timeout)
