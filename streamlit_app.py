@@ -1,29 +1,29 @@
-# streamlit_app.py  — 正しい先頭レイアウト
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """TWS Auto Trader – Streamlit UI"""
 
-from __future__ import annotations  # ← docstring直後。ここだけが例外的に最優先
+from __future__ import annotations
 
-# 1) Windows/Streamlit用のイベントループ対策（← future import の後に来る）
+# --- 標準ライブラリ ---
 import sys
-import asyncio
-if sys.platform.startswith("win"):
-    try:
-        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
-    except Exception:
-        pass
-try:
-    asyncio.get_event_loop()
-except RuntimeError:
-    asyncio.set_event_loop(asyncio.new_event_loop())
-
-# 2) 通常のインポート
 import os
 import math
+import logging
+from pathlib import Path
+from datetime import datetime, timedelta, time
+from zoneinfo import ZoneInfo
+
+# --- サードパーティ ---
 import streamlit as st
+
+# --- プロジェクト内部 ---
+from src.ib_client import IBClient, make_etf, qualify_or_raise, wait_price
+from src.utils.logger import get_logger
+from src.ib.orders import StockSpec, bracket_buy_with_stop, decide_lmt_stop_take
+from src.ib.options import Underlying, pick_option_contract, sell_option  # ← _underlying_price 削除
+from src.config import OrderPolicy
+
 # --- logging bootstrap (診断用) ---
-import logging, sys
 if not logging.getLogger().handlers:
     h = logging.StreamHandler(sys.stdout)
     fmt = logging.Formatter("%(asctime)s %(levelname)s %(name)s - %(message)s")
@@ -31,6 +31,7 @@ if not logging.getLogger().handlers:
     root = logging.getLogger()
     root.addHandler(h)
     root.setLevel(logging.INFO)
+
 orders_log = logging.getLogger("orders")
 orders_log.propagate = False
 if not orders_log.handlers:
@@ -39,17 +40,9 @@ if not orders_log.handlers:
     orders_log.addHandler(_h)
     orders_log.setLevel(logging.INFO)
 
-from pathlib import Path
-from datetime import datetime, timedelta, time
-from zoneinfo import ZoneInfo
-from src.ib_client import IBClient, make_etf, qualify_or_raise, wait_price
-from src.utils.logger import get_logger
-from src.ib.orders import StockSpec, bracket_buy_with_stop, decide_lmt_stop_take
-from src.ib.options import Underlying, pick_option_contract, sell_option, _underlying_price
-from src.config import OrderPolicy
 
 log = get_logger("st")
-POL = OrderPolicy()  # 発注ポリシーをここで固定（UIはLiveの可否のみ）
+POL = OrderPolicy()  # 発注ポリシーをここで固定（UIはLiveの可否のみ））
 
 # 3) IBクライアント（接続）のセッション再利用
 def get_client() -> IBClient | None:
@@ -206,7 +199,17 @@ if colA.button("Connect"):
     try:
         cli.connect(market_data_type=int(md_type))
         st.session_state["ib_client"] = cli
-        st.success("Connected")
+        # --- 環境バナー＆口座検証（ここなら cli が存在） ---
+        env = os.getenv("RUN_MODE", "paper")
+        accts = cli.ib.managedAccounts() or []
+        acct_hint = ", ".join(accts) if accts else "(unknown)"
+        is_paper = any(a.startswith("DU") for a in accts)  # IBKR: Paper=DUxxxxx
+        st.success(f"Connected – Accounts: {acct_hint} | RUN_MODE={env}")
+        if env == "live" and is_paper:
+            st.warning("RUN_MODE=live ですが Paper 口座に接続しています。PORT/ログイン/PORT番号を再確認してください。")
+        if env == "paper" and not is_paper:
+            st.warning("RUN_MODE=paper ですが Live 口座に接続しています。PORT/ログイン/PORT番号を再確認してください。")
+
     except Exception as e:
         st.error(f"Connect failed: {e}")
 
@@ -226,15 +229,19 @@ if manual_toggle and manual_price:
     st.session_state["can_trade"] = True
     st.sidebar.success(f"Manual decided price set: {manual_price}")
 show_logs = st.sidebar.checkbox("Show recent logs", value=True)
-live = st.sidebar.checkbox("Live orders (Paper/Real)", value=False,
+live_toggle = st.sidebar.checkbox("Live orders (Paper/Real)", value=False,
                            help="Off=DRY RUN（注文は送らない） / On=実注文（Paper/RealはTWSのログインに依存）")
 st.session_state["budget_nugt"] = budget_nugt
-st.session_state["live_orders"]  = live
+st.session_state["live_orders"]  = live_toggle
 # .env の DRY_RUN を見て“デフォルトの意図”を明示（実際の発注可否は live チェックに依存）
 ENV_DRY = os.getenv("DRY_RUN", "true").lower() == "true"
 mode_text = "DRY RUN（env=DRY_RUN=true）" if ENV_DRY else "LIVE準備（env=DRY_RUN=false）"
 st.sidebar.markdown(f"**Env Mode**: {mode_text}")
-
+st.sidebar.markdown("### Live Arming")
+confirm_text = st.sidebar.text_input('Type to arm LIVE (exact):', value='', help='本番送信するには "LIVE" と入力')
+armed_live = bool(live_toggle and (confirm_text.strip() == "LIVE"))
+if live_toggle and not armed_live:
+    st.sidebar.warning('LIVE送信を有効化するには "LIVE" と入力してください。')
 st.sidebar.markdown("### Manual Run")
 if st.sidebar.button("Run NUGT Covered Call"):
     # 価格の決定（手動→自動の順で拾う）
@@ -245,8 +252,8 @@ if st.sidebar.button("Run NUGT Covered Call"):
     if not price or float(price) <= 0:
         st.sidebar.error("決定価格がありません。Priceタブで手動 or 自動で価格を確定してください。")
         st.stop()
-    # DRY/LIVE 切替（サイドバーの Live orders）
-    live = bool(st.session_state.get("live_orders", False))
+    # DRY/LIVE 切替（サイドバーの Live orders + 確認ワード）
+    live = bool(armed_live)
     # 予算とストップ％（サイドバーの値を使う。無ければ既定値）
     budget = float(st.session_state.get("budget_nugt", 600000))
     stop_pct = float(st.session_state.get("stop_pct", 0.06))
