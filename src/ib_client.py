@@ -49,20 +49,48 @@ def resolve_price(t: Ticker) -> float | None:
 
 def wait_price(ib: IB, c: Contract, timeout: float = 12.0, poll: float = 0.25) -> tuple[float | None, Ticker]:
     """
-    ストリーミングMDを要求して、timeout まで価格決定を待つ。
-    connect() で MDType は既に 3（遅延）に設定済みの前提。
+    価格取得: まず snapshot=True を試し、ダメなら streaming で軽く待つ。
+    Streamlit 環境でも必ず timeout で戻るように設計。
     """
-    ib.reqMktData(c, "", False, False)  # streaming
-    t0 = time.time()
-    t: Ticker | None = None
-    while time.time() - t0 < timeout:
-        ib.waitOnUpdate(timeout=1)
-        t = ib.ticker(c)
-        px = resolve_price(t)
+    # 念のため delayed を再指定（多重指定しても副作用なし）
+    try:
+        ib.reqMarketDataType(3)  # 3 = Delayed
+    except Exception:
+        pass
+
+    # 0) 契約は資格付け済みが前提だが、念のため
+    try:
+        if not getattr(c, "conId", None):
+            ib.qualifyContracts(c)
+    except Exception:
+        pass
+
+    # 1) まずスナップショットで即取りにいく
+    ticker = ib.reqMktData(c, "", True, False)  # snapshot=True
+    util.run(ib.sleep(min(2.0, timeout)))       # まずは短く待つ
+    px = resolve_price(ticker)
+    if px:
+        ib.cancelMktData(c)
+        return px, ticker
+
+    # 2) 取れなければ streaming に切替（軽く待つ）
+    ib.cancelMktData(c)
+    ticker = ib.reqMktData(c, "", False, False)  # streaming
+    deadline = time.time() + timeout
+    # 進捗ログが要る場合はここで log.debug を入れてOK
+    while time.time() < deadline:
+        # Streamlit でも戻るように「短いsleep→値チェック」を繰り返す
+        util.run(ib.sleep(poll))
+        px = resolve_price(ticker)
         if px:
-            return px, t
-        time.sleep(poll)
-    return None, t if t else ib.ticker(c)
+            ib.cancelMktData(c)
+            return px, ticker
+
+    # 3) タイムアウト：購読解除して返す
+    ib.cancelMktData(c)
+    return None, ticker
+
+
 # ----------------------------------------------------------------
 
 
@@ -117,11 +145,12 @@ class IBClient:
 
     def fetch_open_orders(self):
         return self.ib.openOrders()
-    
-        # --- [任意] シンボルを渡して価格だけ取るワンライナー ---
+
+    # --- [任意] シンボルを渡して価格だけ取るワンライナー ---
     def fetch_price_for(self, symbol: str, timeout: float = 12.0) -> tuple[float | None, Ticker, Contract]:
         c = make_etf(symbol)
         qc = qualify_or_raise(self.ib, c)
         px, t = wait_price(self.ib, qc, timeout=timeout)
         return px, t, qc
+
 
