@@ -22,7 +22,23 @@ except RuntimeError:
 import os
 import math
 import streamlit as st
-
+# --- logging bootstrap (診断用) ---
+import logging, sys
+if not logging.getLogger().handlers:
+    h = logging.StreamHandler(sys.stdout)
+    fmt = logging.Formatter("%(asctime)s %(levelname)s %(name)s - %(message)s")
+    h.setFormatter(fmt)
+    root = logging.getLogger()
+    root.addHandler(h)
+    root.setLevel(logging.INFO)
+orders_log = logging.getLogger("orders")
+orders_log.propagate = False
+if not orders_log.handlers:
+    _h = logging.StreamHandler(sys.stdout)
+    _h.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s - %(message)s"))
+    orders_log.addHandler(_h)
+    orders_log.setLevel(logging.INFO)
+    
 from pathlib import Path
 from datetime import datetime, timedelta, time
 from zoneinfo import ZoneInfo
@@ -65,8 +81,13 @@ def get_account_snapshot():
     } for o in orders]
     return acct_rows, pos_rows, ord_rows
 
-def run_nugt_cc(budget: float, stop_pct_val: float = 0.06,
-                manual_price: float | None = None, live: bool = False) -> list[str]:
+def run_nugt_cc(budget: float, stop_pct_val: float = 0.06, ref: float | None = None, live: bool = False, **kwargs):
+    #print(f"[DEBUG] enter run_nugt_cc live={live} budget={budget} stop={stop_pct_val}")
+    orders_log.info(f"[DEBUG] enter run_nugt_cc live={live} budget={budget} stop={stop_pct_val}")
+    # 互換: ref_price/price/entry でも受ける
+    if ref is None:
+        ref = kwargs.get("ref_price") or kwargs.get("price") or kwargs.get("entry")
+    assert ref is not None and ref > 0, "ref price is required"
     """
     DRY RUN: 予算いっぱい現物→取得価格の6%下にSTP→ATMコール売り。
     manual_price があればそれを使用。無ければスナップショット価格を取得。
@@ -78,7 +99,7 @@ def run_nugt_cc(budget: float, stop_pct_val: float = 0.06,
     und  = Underlying("NUGT", "SMART", "USD")
 
     # 価格：手動 > スナップショット
-    px = float(manual_price) if manual_price is not None else _underlying_price(cli.ib, und)
+    px = float(ref)
     if not math.isfinite(px) or px <= 0:
         raise RuntimeError(f"NUGT price is invalid: {px}")
 
@@ -89,16 +110,15 @@ def run_nugt_cc(budget: float, stop_pct_val: float = 0.06,
     qty_contracts = qty_shares // 100
     msgs.append(f"price≈{px:.2f}, budget={budget}, shares={qty_shares}, option_contracts={qty_contracts}")
 
-    #oca = new_oca_group("COVERED")
-
-    # 1) 株 BUY（DRY）
-    #market(cli.ib, spec, "BUY", qty_shares, dry_run=not live)
-
-    # 2) 6% STP（DRY）
-    #stop_pct(cli.ib, spec, qty_shares, reference_price=px, pct=stop_pct_val,
-    #         dry_run=not live, oca_group=oca)
     # 1+2) 親子（ブランケット）：BUY → 親Fill後にSTOPを自動有効化
     stop_price = round(px * (1 - stop_pct_val), 2)
+    # --- ここで DRY/LIVE に関わらず必ず人間が読めるログを出す ---
+    if not live:
+        orders_log.info(f"[DRY RUN] STOCK MKT BUY {qty_shares} NUGT")
+        orders_log.info(f"[DRY RUN] STOCK STP SELL {qty_shares} NUGT @ {stop_price:.2f} (ref={px:.2f}, pct={stop_pct_val})")
+    else:
+        orders_log.info(f"[LIVE PREVIEW] BUY {qty_shares} NUGT -> STOP {stop_price:.2f} (ref={px:.2f}, pct={stop_pct_val})")
+
     parent, child, parent_trade = bracket_buy_with_stop(
         ib=cli.ib,
         spec=spec,
@@ -171,9 +191,17 @@ if colB.button("Disconnect"):
 budget_nugt = float(st.sidebar.text_input("Budget – NUGT (USD)", os.getenv("BUDGET_NUGT", "5000")))
 manual_toggle = st.sidebar.checkbox("Use manual price for NUGT", value=False)
 manual_price = float(st.sidebar.text_input("Manual price (NUGT)", "100.0")) if manual_toggle else None
+# --- Patch: 手動価格ON時は決定価格として採用＆取引許可 ---
+if manual_toggle and manual_price:
+    st.session_state["manual_price:NUGT"] = manual_price
+    st.session_state["decided_price:NUGT"] = manual_price
+    st.session_state["can_trade"] = True
+    st.sidebar.success(f"Manual decided price set: {manual_price}")
 show_logs = st.sidebar.checkbox("Show recent logs", value=True)
 live = st.sidebar.checkbox("Live orders (Paper/Real)", value=False,
                            help="Off=DRY RUN（注文は送らない） / On=実注文（Paper/RealはTWSのログインに依存）")
+st.session_state["budget_nugt"] = budget_nugt
+st.session_state["live_orders"]  = live
 # .env の DRY_RUN を見て“デフォルトの意図”を明示（実際の発注可否は live チェックに依存）
 ENV_DRY = os.getenv("DRY_RUN", "true").lower() == "true"
 mode_text = "DRY RUN（env=DRY_RUN=true）" if ENV_DRY else "LIVE準備（env=DRY_RUN=false）"
@@ -181,14 +209,32 @@ st.sidebar.markdown(f"**Env Mode**: {mode_text}")
 
 st.sidebar.markdown("### Manual Run")
 if st.sidebar.button("Run NUGT Covered Call"):
+    # 価格の決定（手動→自動の順で拾う）
+    price = (
+        st.session_state.get("decided_price:NUGT")
+        or st.session_state.get("manual_price:NUGT")
+    )
+    if not price or float(price) <= 0:
+        st.sidebar.error("決定価格がありません。Priceタブで手動 or 自動で価格を確定してください。")
+        st.stop()
+    # DRY/LIVE 切替（サイドバーの Live orders）
+    live = bool(st.session_state.get("live_orders", False))
+    # 予算とストップ％（サイドバーの値を使う。無ければ既定値）
+    budget = float(st.session_state.get("budget_nugt", 600000))
+    stop_pct = float(st.session_state.get("stop_pct", 0.06))
+    # 念のため can_trade を最終的に True に
+    st.session_state["can_trade"] = True
+    # 実行
+    # run_nugt_cc の定義順: (budget, stop_pct_val, ref, live) を想定し位置引数で渡す
     try:
-        msgs = run_nugt_cc(budget_nugt, 0.06, manual_price, live=live)
-        st.success("NUGT Covered Call – " + ("LIVE（Paper/Real）" if live else "DRY RUN") + " 完了")
-
-        for m in msgs:
-            st.write("•", m)
+        msgs = run_nugt_cc(budget, stop_pct, float(price), live)
+        st.sidebar.success(f"NUGT Covered Call – {'LIVE' if live else 'DRY RUN'} 完了")
+        if msgs:
+            for m in msgs:
+                orders_log.info(m)
     except Exception as e:
-        st.error(f"実行エラー: {e}")
+        orders_log.exception("manual run failed")
+        st.sidebar.error(f"実行エラー: {e}")
 
 st.sidebar.markdown("### Upcoming (NY time → Local)")
 for ny, local in next_weekly_times():
@@ -215,18 +261,30 @@ with tab_price:
 
         if probe_btn:
             try:
+                log.info(f"[price-probe] start symbol={symbol} timeout={timeout_sec}")
                 c = make_etf(symbol)
                 qc = qualify_or_raise(cli.ib, c)
-                px, t = wait_price(cli.ib, qc, timeout=float(timeout_sec))
+
+                # 取得中はスピナー表示（任意だが便利）
+                with st.spinner("マーケットデータ受信待ち…"):
+                    px, t = wait_price(cli.ib, qc, timeout=float(timeout_sec))
+
+                # 結果をセッションに保存
                 st.session_state[f"price:{symbol}"] = px
                 st.session_state[f"ticker:{symbol}"] = {
                     "last": t.last, "bid": t.bid, "ask": t.ask, "close": t.close
                 }
+
+                # 画面表示
                 if px:
                     st.success(f"{symbol} 決定価格: {px:.4f}")
                 else:
                     st.warning(f"{symbol} の価格が timeout({timeout_sec:.1f}s) 内に確定しませんでした。")
+
+                log.info(f"[price-probe] end   symbol={symbol} price={px} "
+                         f"last={t.last} bid={t.bid} ask={t.ask} close={t.close}")
             except Exception as e:
+                log.exception(f"[price-probe] error symbol={symbol}: {e}")
                 st.error(f"価格取得エラー: {e}")
 
         px = st.session_state.get(f"price:{symbol}")
