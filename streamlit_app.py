@@ -38,16 +38,18 @@ if not orders_log.handlers:
     _h.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s - %(message)s"))
     orders_log.addHandler(_h)
     orders_log.setLevel(logging.INFO)
-    
+
 from pathlib import Path
 from datetime import datetime, timedelta, time
 from zoneinfo import ZoneInfo
 from src.ib_client import IBClient, make_etf, qualify_or_raise, wait_price
 from src.utils.logger import get_logger
-from src.ib.orders import StockSpec, bracket_buy_with_stop
+from src.ib.orders import StockSpec, bracket_buy_with_stop, decide_lmt_stop_take
 from src.ib.options import Underlying, pick_option_contract, sell_option, _underlying_price
+from src.config import OrderPolicy
 
 log = get_logger("st")
+POL = OrderPolicy()  # 発注ポリシーをここで固定（UIはLiveの可否のみ）
 
 # 3) IBクライアント（接続）のセッション再利用
 def get_client() -> IBClient | None:
@@ -110,27 +112,53 @@ def run_nugt_cc(budget: float, stop_pct_val: float = 0.06, ref: float | None = N
     qty_contracts = qty_shares // 100
     msgs.append(f"price≈{px:.2f}, budget={budget}, shares={qty_shares}, option_contracts={qty_contracts}")
 
-    # 1+2) 親子（ブランケット）：BUY → 親Fill後にSTOPを自動有効化
-    stop_price = round(px * (1 - stop_pct_val), 2)
-    # --- ここで DRY/LIVE に関わらず必ず人間が読めるログを出す ---
+    # 1+2) 親子（ブランケット）：親=指値、子=逆指値（既定ポリシーで自動決定）
+    lmt_price, stop_price, take_profit = decide_lmt_stop_take(
+        px,
+        slippage_bps=POL.slippage_bps,
+        stop_pct=POL.stop_pct,  # ← stop_pct_val（UI）よりもポリシー優先に統一
+        take_profit_pct=POL.take_profit_pct,
+    )
+    # --- ここで DRY/LIVE を問わず、**LMTベース**のプレビューを出す ---
     if not live:
-        orders_log.info(f"[DRY RUN] STOCK MKT BUY {qty_shares} NUGT")
-        orders_log.info(f"[DRY RUN] STOCK STP SELL {qty_shares} NUGT @ {stop_price:.2f} (ref={px:.2f}, pct={stop_pct_val})")
+        orders_log.info(f"[DRY RUN] STOCK LMT BUY {qty_shares} NUGT @ {lmt_price:.2f}")
+        orders_log.info(f"[DRY RUN] STOCK STP SELL {qty_shares} NUGT @ {stop_price:.2f} (ref={px:.2f})")
+        if take_profit is not None:
+            orders_log.info(f"[DRY RUN] STOCK LMT SELL(TP) {qty_shares} NUGT @ {take_profit:.2f}")
     else:
-        orders_log.info(f"[LIVE PREVIEW] BUY {qty_shares} NUGT -> STOP {stop_price:.2f} (ref={px:.2f}, pct={stop_pct_val})")
-
+        orders_log.info(
+            f"[LIVE PREVIEW] BUY LMT {qty_shares} @ {lmt_price:.2f} -> "
+            f"STOP {stop_price:.2f}{' -> TP ' + str(take_profit) if take_profit else ''} "
+            f"(ref={px:.2f}, TIF={POL.tif}, outsideRth={POL.outside_rth})"
+        )
     parent, child, parent_trade = bracket_buy_with_stop(
         ib=cli.ib,
         spec=spec,
         qty=qty_shares,
-        entry_type="MKT",      # すぐ約定を見たいなら "LMT" と lmt_price を指定
-        lmt_price=None,        # entry_type="LMT" のときだけ値を入れる
+        entry_type="LMT",              # ★ 親をLMTに統一
+        lmt_price=lmt_price,           # ★ 自動算出した指値
         stop_price=stop_price,
-        tif="DAY",             # 長く持つなら "GTC"
-        outside_rth=True,      # 時間外も許可したいなら True
-        dry_run=not live,      # ← サイドバーの Live トグルで切り替え
+        tif=POL.tif,                   # "DAY" / "GTC" をポリシーで固定
+        outside_rth=POL.outside_rth,   # 立会時間外の約定可否をポリシーで固定
+        dry_run=not live,              # ← UIのLiveトグルで送信可否
     )
-    msgs.append(f"Bracket: BUY({parent.orderType}) {qty_shares} → STOP {stop_price:.2f}")
+    # ★ 実発注（Paper/Live）のときだけ親注文のIDをログへ残す
+    if parent_trade is not None:
+        try:
+            orders_log.info(
+                f"[PLACED] orderId={parent_trade.order.orderId} "
+                f"permId={parent_trade.order.permId} "
+                f"parentType={parent_trade.order.orderType}"
+            )
+        except Exception:
+            # ここでのログ失敗は致命ではないので握りつぶす
+            pass
+    msgs.append(
+        f"Bracket: BUY {parent.orderType} {qty_shares} @ {getattr(parent, 'lmtPrice', None)} "
+        f"→ STOP {stop_price:.2f}"
+        + (f" → TP {take_profit:.2f}" if take_profit is not None else "")
+        + f" | TIF={POL.tif} outsideRth={POL.outside_rth}"
+    )
 
     # 3) ATM CALL SELL（DRY）
     if qty_contracts >= 1:

@@ -49,7 +49,8 @@ def market(
     _maybe_transmit(o, dry_run)
 
     if dry_run:
-        log.info(f"[DRY RUN] STOCK MKT {action} {qty} {spec.symbol}")
+        # DEPRECATED: 直接の成行発注は使用しない方針。ログ表現も中立にする。
+        log.info(f"[DRY RUN] STOCK {o.orderType} {action} {qty} {spec.symbol}")
         return o
 
     trade = ib.placeOrder(c, o)
@@ -122,7 +123,7 @@ def bracket_buy_with_stop(
     spec: StockSpec,
     *,
     qty: float,
-    entry_type: str = "MKT",        # "MKT"=成行 / "LMT"=指値
+    entry_type: str = "LMT",        # "MKT"=成行 / "LMT"=指値
     lmt_price: float | None = None, # entry_type="LMT" の時だけ必須
     stop_price: float,              # 例: 参照価格×(1-0.06)
     tif: str = "DAY",               # "DAY" or "GTC"
@@ -158,3 +159,22 @@ def bracket_buy_with_stop(
 
     return parent, child, parent_trade
 # ---------------------------------------------------------------------
+
+# --- 追加：指値/逆指値の自動算出（基準価格ベース） -----------------------
+def decide_lmt_stop_take(
+    reference_price: float,
+    *,
+    slippage_bps: int = 15,
+    stop_pct: float = 0.06,
+    take_profit_pct: float | None = None,
+) -> tuple[float, float, float | None]:
+    """
+    戻り値: (lmt_price, stop_price, take_profit_price|None)
+      - lmt = ref * (1 + bps/10000), 小数2桁丸め
+      - stop = ref * (1 - stop_pct), 小数2桁丸め（ロング前提）
+      - take = ref * (1 + take_profit_pct) or None
+    """
+    lmt = round(reference_price * (1 + slippage_bps / 10000), 2)
+    stp = round(reference_price * (1 - stop_pct), 2)
+    tpf = None if take_profit_pct is None else round(reference_price * (1 + take_profit_pct), 2)
+    return lmt, stp, tpf
