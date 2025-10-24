@@ -28,10 +28,11 @@ from src.utils.logger import get_logger
 from src.ib.orders import StockSpec, bracket_buy_with_stop, decide_lmt_stop_take
 from src.ib.options import Underlying, pick_option_contract, sell_option  # ← _underlying_price 削除
 from src.config import OrderPolicy
-from src.price import get_prices
+from src.price import get_prices, last_price_meta
 from src.symbols import SYMBOLS_ORDER
 from src.metrics_vix import save_vix_snapshot
 from src.orders.manual_order import place_manual_order
+from src.utils.loop import ensure_event_loop
 
 # --- logging bootstrap (診断用) ---
 if not logging.getLogger().handlers:
@@ -87,6 +88,7 @@ def get_account_snapshot():
     return acct_rows, pos_rows, ord_rows
 
 def run_nugt_cc(budget: float, stop_pct_val: float = 0.06, ref: float | None = None, live: bool = False, **kwargs):
+    ensure_event_loop()  # ★ 追加（この関数内でib_insync同期APIを安全に使えるように）
     #print(f"[DEBUG] enter run_nugt_cc live={live} budget={budget} stop={stop_pct_val}")
     orders_log.info(f"[DEBUG] enter run_nugt_cc live={live} budget={budget} stop={stop_pct_val}")
     # 互換: ref_price/price/entry でも受ける
@@ -175,6 +177,7 @@ def run_nugt_cc(budget: float, stop_pct_val: float = 0.06, ref: float | None = N
     return msgs
 
 def run_etf_buy_with_stop(symbol: str, budget: float, ref: float, live: bool = False) -> list[str]:
+    ensure_event_loop()  # ★ 追加
     """
     任意ETFを NUGTと同じロジック（親=指値, 子=逆指値(+TP)）で購入。
     ref: 決定価格（手動またはPriceタブ採用価格）
@@ -272,6 +275,8 @@ if colA.button("Connect"):
     try:
         cli.connect(market_data_type=int(md_type))
         st.session_state["ib_client"] = cli
+        # ★ Streamlit実行スレッドにイベントループを保証（ib_insyncの同期APIが使えるように）
+        ensure_event_loop()
         # --- 環境バナー＆口座検証（ここなら cli が存在） ---
         env = os.getenv("RUN_MODE", "paper")
         accts = cli.ib.managedAccounts() or []
@@ -429,12 +434,17 @@ with tab_price:
                 ensure_event_loop()  # 念押し
                 with st.spinner("マーケットデータ取得中…"):
                     prices = get_prices(cli.ib, sel, delay_type=int(md_type))
+                meta = last_price_meta()
                 # セッションへ保存＋表描画用に整形
                 rows = []
                 for s in sel:
                     px = prices.get(s)
                     st.session_state[f"price:{s}"] = px
-                    rows.append({"symbol": s, "price": (f"{px:.4f}" if px else "—")})
+                    rows.append({
+                        "symbol": s,
+                        "price": (f"{px:.4f}" if px else "—"),
+                        "source": meta.get(s, "")
+                    })
                 st.success("価格更新しました。")
                 st.table(rows)
             except Exception as e:
@@ -533,6 +543,7 @@ with col3:
 side = st.radio("Action", ["BUY", "SELL"], horizontal=True)
 
 if st.button("Place Order"):
+    ensure_event_loop()  # ★ 念のため
     if cli.ib and cli.ib.isConnected():
         result = place_manual_order(cli.ib, manual_symbol, int(qty), action=side, dry_run=dry)
         st.success(f"✅ {side} {manual_symbol} x {qty} ({result['status']})")
