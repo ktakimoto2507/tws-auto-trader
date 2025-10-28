@@ -147,7 +147,8 @@ class IBClient:
         raise RuntimeError(f"Failed to connect IB after trying {max_try_ids} clientIds") from last_err
     def disconnect(self):
         try:
-            self.ib.disconnect()
+            if self.ib:
+                self.ib.disconnect()
             log.info("Disconnected")
         except Exception as e:
             log.warning(f"Disconnect error: {e}")
