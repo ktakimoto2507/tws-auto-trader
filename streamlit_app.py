@@ -32,6 +32,7 @@ from src.ib.orders import StockSpec, bracket_buy_with_stop, decide_lmt_stop_take
 from src.ib.options import Underlying, pick_option_contract, sell_option  # ← _underlying_price 削除
 from src.config import OrderPolicy
 from src.orders.manual_order import place_manual_order
+from src.utils.loop import ensure_event_loop
 
 def _resolve_last_then_close(t) -> float | None:
     """TWSウォッチリストの『直近』風: last があればそれ、無ければ close。"""
@@ -313,6 +314,7 @@ def run_tmf_cc(budget: float, stop_pct_val: float, ref: float, live: bool = Fals
 
 
 def run_etf_buy_with_stop(symbol: str, budget: float, ref: float, live: bool = False) -> list[str]:
+    ensure_event_loop()  # ★ 追加
     """
     任意ETFを NUGTと同じロジック（親=指値, 子=逆指値(+TP)）で購入。
     ref: 決定価格（手動またはPriceタブ採用価格）
@@ -432,6 +434,8 @@ if colA.button("Connect"):
         ensure_event_loop()                           # ← 追加
         cli.connect(market_data_type=int(md_type))
         st.session_state["ib_client"] = cli
+        # ★ Streamlit実行スレッドにイベントループを保証（ib_insyncの同期APIが使えるように）
+        ensure_event_loop()
         # --- 環境バナー＆口座検証（ここなら cli が存在） ---
         env = os.getenv("RUN_MODE", "paper")
         accts = cli.ib.managedAccounts() or []
