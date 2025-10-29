@@ -16,19 +16,29 @@ except RuntimeError:
 import math
 import time
 
-from ib_insync import IB, util, Stock, Contract, Ticker
+from ib_insync import IB, util, Contract, Ticker, Stock
 from .config import IBConfig
 from .utils.logger import get_logger
 from .utils.loop import ensure_event_loop
+
+# ★ 追加：シンボルごとの primaryExchange オーバーライド
+EX_OVERRIDE = {
+    "UVIX": "BATS",     # Cboe BZX
+    "UVXY": "ARCA",
+    "NUGT": "ARCA",
+    "TMF":  "ARCA",
+}
 # ------------------------------------------------------
 
 # （※ ここは削除。ループ初期化は “import ib_insync より前” の一箇所だけで十分）
 
 log = get_logger("ib")
 # --- [P0-1] 契約ユーティリティ（ETF用：SMART+ARCA を統一） ---
-def make_etf(symbol: str) -> Contract:
-    """ETF/銘柄の契約を統一定義（SMART ルーティング + primaryExchange=ARCA）"""
-    return Stock(symbol, "SMART", "USD", primaryExchange="ARCA")
+def make_etf(symbol: str) -> Stock:
+    sym = symbol.upper()
+    px = EX_OVERRIDE.get(sym, "ARCA")
+    # SMART でルーティング、primaryExchange は同定用ヒント
+    return Stock(sym, "SMART", "USD", primaryExchange=px)
 
 def qualify_or_raise(ib: IB, c: Contract) -> Contract:
     """qualifyContracts の安全ラッパ。失敗なら例外。"""

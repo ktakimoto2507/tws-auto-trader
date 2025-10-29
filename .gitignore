@@ -1,26 +1,24 @@
-strategies/ *.yaml
-# --- Python build / cache ---
-__pycache__/ 
-*.py[cod] 
-*.pyo 
+﻿# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.egg-info/
+.venv/
+venv/
 
-# --- Virtual environments --- 
-.venv/ 
-venv/ 
-env/ 
-ENV/ 
+# VSCode/OS
+.vscode/
+.DS_Store
 
-# --- Environment files --- 
-.env 
+# Env / Secrets
+.env
+.env.*
 
-# --- Logs & temp files --- 
-logs/ 
-*.log 
+# Project logs & artifacts
+logs/
+!logs/.gitkeep
 
-# --- Tests & pytest --- 
-pytest.ini 
-tests/ 
-
-# --- Jupyter, Streamlit cache --- 
-.ipynb_checkpoints/ 
-.streamlit/
+# Streamlit
+.streamlit/secrets.toml

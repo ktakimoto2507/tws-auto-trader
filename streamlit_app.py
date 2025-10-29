@@ -93,7 +93,11 @@ def fetch_prices_tws_like(ib, symbols: list[str], delay_type: int = 3, timeout: 
         if s.upper() == "VIX":
             c = Index("VIX", "CBOE", "USD")
         else:
-            c = make_etf(s)  # SMART+USD（primaryExchange=ARCA）統一
+            # UVIXはBATS上場のため、contract同定を助ける
+            if s.upper() == "UVIX":
+                c = make_etf("UVIX")  # ← ib_client側のEX_OVERRIDEでBATSヒントが効く
+            else:
+                c = make_etf(s)
         # qualify は失敗しても後段で拾えるように best-effort
         try:
             ib.qualifyContracts(c)
@@ -168,11 +172,15 @@ def _worker(job_q: queue.Queue, res: dict):
     while True:
         job = job_q.get()  # {"id": "...", "kind": "...", "args": {...}}
         jid = job["id"]
-        res[jid] = {"status": "running", "logs": ["started"], "ts": pytime.time()}
+        res[jid] = {"status": "running", "logs": [f"started: {job.get('kind')}"], "ts": pytime.time()}
         try:
             logs = _dispatch_job(job)
+            orders_log.info(f"[WORKER] dispatch {jid} kind={job.get('kind')}")
+            logs = _dispatch_job(job) or []
+            logs.insert(0, f"kind={job.get('kind')}")
             res[jid] = {"status": "done", "logs": logs, "ts": pytime.time()}
         except Exception as e:
+            orders_log.error(f"[WORKER ERROR] {jid}: {type(e).__name__}: {e}")
             res[jid] = {"status": "error", "logs": [f"{type(e).__name__}: {e}"], "ts": pytime.time()}
         finally:
             job_q.task_done()
