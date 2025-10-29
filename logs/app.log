@@ -1,0 +1,764 @@
+2025-10-15 11:36:08,353 INFO ib - Connecting IB: host=127.0.0.1 port=7497 clientId=10
+2025-10-15 11:36:10,401 INFO ib - Disconnected
+2025-10-15 11:40:56,750 INFO ib - Connecting IB: host=127.0.0.1 port=7497 clientId=10
+2025-10-15 11:41:01,763 INFO ib - Disconnected
+2025-10-15 11:48:07,136 INFO ib - Connecting IB: host=127.0.0.1 port=7497 clientId=10
+2025-10-15 11:48:07,503 INFO ib - Connected
+2025-10-15 11:48:07,617 INFO get_account - === Account Summary ===
+2025-10-15 11:48:07,617 INFO get_account - AccountType: CORPORATION 
+2025-10-15 11:48:07,617 INFO get_account - Cushion: 1 
+2025-10-15 11:48:07,618 INFO get_account - DayTradesRemaining: -1 
+2025-10-15 11:48:07,618 INFO get_account - DayTradesRemainingT+1: -1 
+2025-10-15 11:48:07,618 INFO get_account - DayTradesRemainingT+2: -1 
+2025-10-15 11:48:07,620 INFO get_account - DayTradesRemainingT+3: -1 
+2025-10-15 11:48:07,620 INFO get_account - DayTradesRemainingT+4: -1 
+2025-10-15 11:48:07,621 INFO get_account - LookAheadNextChange: 0 
+2025-10-15 11:48:07,621 INFO get_account - AccruedCash: 1470.03 USD
+2025-10-15 11:48:07,621 INFO get_account - AvailableFunds: 1143024.31 USD
+2025-10-15 11:48:07,621 INFO get_account - BuyingPower: 4572097.24 USD
+2025-10-15 11:48:07,621 INFO get_account - EquityWithLoanValue: 1143024.31 USD
+2025-10-15 11:48:07,621 INFO get_account - ExcessLiquidity: 1143024.31 USD
+2025-10-15 11:48:07,622 INFO get_account - FullAvailableFunds: 1143024.31 USD
+2025-10-15 11:48:07,622 INFO get_account - FullExcessLiquidity: 1143024.31 USD
+2025-10-15 11:48:07,622 INFO get_account - FullInitMarginReq: 0.00 USD
+2025-10-15 11:48:07,622 INFO get_account - FullMaintMarginReq: 0.00 USD
+2025-10-15 11:48:07,622 INFO get_account - GrossPositionValue: 0.00 USD
+2025-10-15 11:48:07,622 INFO get_account - InitMarginReq: 0.00 USD
+2025-10-15 11:48:07,622 INFO get_account - LookAheadAvailableFunds: 1143024.31 USD
+2025-10-15 11:48:07,622 INFO get_account - LookAheadExcessLiquidity: 1143024.31 USD
+2025-10-15 11:48:07,622 INFO get_account - LookAheadInitMarginReq: 0.00 USD
+2025-10-15 11:48:07,622 INFO get_account - LookAheadMaintMarginReq: 0.00 USD
+2025-10-15 11:48:07,622 INFO get_account - MaintMarginReq: 0.00 USD
+2025-10-15 11:48:07,622 INFO get_account - NetLiquidation: 1144494.34 USD
+2025-10-15 11:48:07,622 INFO get_account - PreviousDayEquityWithLoanValue: 1143024.31 USD
+2025-10-15 11:48:07,623 INFO get_account - RegTEquity: 1144494.34 USD
+2025-10-15 11:48:07,623 INFO get_account - RegTMargin: 0.00 USD
+2025-10-15 11:48:07,623 INFO get_account - SMA: 1144494.34 USD
+2025-10-15 11:48:07,623 INFO get_account - TotalCashValue: 1143024.31 USD
+2025-10-15 11:48:07,623 INFO get_account - Currency: USD USD
+2025-10-15 11:48:07,623 INFO get_account - CashBalance: 1143024.31 USD
+2025-10-15 11:48:07,623 INFO get_account - TotalCashBalance: 1143024.31 USD
+2025-10-15 11:48:07,623 INFO get_account - AccruedCash: 1470.03 USD
+2025-10-15 11:48:07,623 INFO get_account - StockMarketValue: 0.00 USD
+2025-10-15 11:48:07,623 INFO get_account - OptionMarketValue: 0.00 USD
+2025-10-15 11:48:07,623 INFO get_account - FutureOptionValue: 0.00 USD
+2025-10-15 11:48:07,623 INFO get_account - FuturesPNL: 0.00 USD
+2025-10-15 11:48:07,623 INFO get_account - NetLiquidationByCurrency: 1144494.34 USD
+2025-10-15 11:48:07,623 INFO get_account - UnrealizedPnL: 0.00 USD
+2025-10-15 11:48:07,623 INFO get_account - RealizedPnL: 0.00 USD
+2025-10-15 11:48:07,623 INFO get_account - ExchangeRate: 1.00 USD
+2025-10-15 11:48:07,624 INFO get_account - FundValue: 0.00 USD
+2025-10-15 11:48:07,624 INFO get_account - NetDividend: 0.00 USD
+2025-10-15 11:48:07,624 INFO get_account - MutualFundValue: 0.00 USD
+2025-10-15 11:48:07,624 INFO get_account - MoneyMarketFundValue: 0.00 USD
+2025-10-15 11:48:07,624 INFO get_account - CorporateBondValue: 0.00 USD
+2025-10-15 11:48:07,624 INFO get_account - TBondValue: 0.00 USD
+2025-10-15 11:48:07,624 INFO get_account - TBillValue: 0.00 USD
+2025-10-15 11:48:07,625 INFO get_account - WarrantValue: 0.00 USD
+2025-10-15 11:48:07,625 INFO get_account - FxCashBalance: 0.00 USD
+2025-10-15 11:48:07,625 INFO get_account - AccountOrGroup: All USD
+2025-10-15 11:48:07,625 INFO get_account - RealCurrency: USD USD
+2025-10-15 11:48:07,625 INFO get_account - IssuerOptionValue: 0.00 USD
+2025-10-15 11:48:07,625 INFO get_account - Cryptocurrency: 0.00 USD
+2025-10-15 11:48:07,625 INFO get_account - Currency: BASE BASE
+2025-10-15 11:48:07,625 INFO get_account - CashBalance: 1143024.31 BASE
+2025-10-15 11:48:07,625 INFO get_account - TotalCashBalance: 1143024.31 BASE
+2025-10-15 11:48:07,625 INFO get_account - AccruedCash: 1470.03 BASE
+2025-10-15 11:48:07,626 INFO get_account - StockMarketValue: 0.00 BASE
+2025-10-15 11:48:07,626 INFO get_account - OptionMarketValue: 0.00 BASE
+2025-10-15 11:48:07,626 INFO get_account - FutureOptionValue: 0.00 BASE
+2025-10-15 11:48:07,626 INFO get_account - FuturesPNL: 0.00 BASE
+2025-10-15 11:48:07,626 INFO get_account - NetLiquidationByCurrency: 1144494.34 BASE
+2025-10-15 11:48:07,626 INFO get_account - UnrealizedPnL: 0.00 BASE
+2025-10-15 11:48:07,626 INFO get_account - RealizedPnL: 0.00 BASE
+2025-10-15 11:48:07,627 INFO get_account - ExchangeRate: 1.00 BASE
+2025-10-15 11:48:07,627 INFO get_account - FundValue: 0.00 BASE
+2025-10-15 11:48:07,627 INFO get_account - NetDividend: 0.00 BASE
+2025-10-15 11:48:07,627 INFO get_account - MutualFundValue: 0.00 BASE
+2025-10-15 11:48:07,627 INFO get_account - MoneyMarketFundValue: 0.00 BASE
+2025-10-15 11:48:07,627 INFO get_account - CorporateBondValue: 0.00 BASE
+2025-10-15 11:48:07,628 INFO get_account - TBondValue: 0.00 BASE
+2025-10-15 11:48:07,628 INFO get_account - TBillValue: 0.00 BASE
+2025-10-15 11:48:07,628 INFO get_account - WarrantValue: 0.00 BASE
+2025-10-15 11:48:07,628 INFO get_account - FxCashBalance: 0.00 BASE
+2025-10-15 11:48:07,628 INFO get_account - AccountOrGroup: All BASE
+2025-10-15 11:48:07,628 INFO get_account - RealCurrency: BASE BASE
+2025-10-15 11:48:07,628 INFO get_account - IssuerOptionValue: 0.00 BASE
+2025-10-15 11:48:07,628 INFO get_account - Cryptocurrency: 0.00 BASE
+2025-10-15 11:48:07,628 INFO get_account - === Positions ===
+2025-10-15 11:48:07,628 INFO get_account - === Open Orders ===
+2025-10-15 11:48:07,628 INFO ib - Disconnected
+2025-10-15 11:50:33,516 INFO ib - Connecting IB: host=127.0.0.1 port=7497 clientId=10
+2025-10-15 11:50:33,631 INFO ib - Connected
+2025-10-15 11:50:37,430 INFO get_history - bars=960
+2025-10-15 11:50:37,443 INFO get_history -                          date    open    high     low   close  volume  average  barCount
+955 2025-10-14 19:35:00-04:00  247.65  247.65  247.65  247.65     0.0  247.650         0
+956 2025-10-14 19:40:00-04:00  247.65  247.65  247.65  247.65     0.0  247.650         0
+957 2025-10-14 19:45:00-04:00  247.67  247.67  247.62  247.65   600.0  247.651         6
+958 2025-10-14 19:50:00-04:00  247.71  247.79  247.61  247.61  1158.0  247.643         6
+959 2025-10-14 19:55:00-04:00  247.61  247.69  247.28  247.36  4415.0  247.537        20
+2025-10-15 11:50:37,455 INFO get_history - Saved: logs/aapl_5d_5m.csv
+2025-10-15 11:50:37,456 INFO ib - Disconnected
+2025-10-15 11:51:02,399 INFO ib - Connecting IB: host=127.0.0.1 port=7497 clientId=10
+2025-10-15 11:51:02,709 INFO ib - Connected
+2025-10-15 11:51:02,709 INFO get_realtime - Subscribing realtime for 10 seconds...
+2025-10-15 11:51:02,710 INFO get_realtime - last=nan bid=nan ask=nan volume=nan
+2025-10-15 11:51:03,711 INFO get_realtime - last=nan bid=nan ask=nan volume=nan
+2025-10-15 11:51:04,712 INFO get_realtime - last=nan bid=nan ask=nan volume=nan
+2025-10-15 11:51:05,713 INFO get_realtime - last=nan bid=nan ask=nan volume=nan
+2025-10-15 11:51:06,714 INFO get_realtime - last=nan bid=nan ask=nan volume=nan
+2025-10-15 11:51:07,580 INFO ib - Disconnected
+2025-10-15 04:49:21,372 INFO ib - Connecting IB: host=127.0.0.1 port=7497 clientId=10
+2025-10-15 04:49:21,518 INFO ib - Connected
+2025-10-15 04:49:21,624 INFO ib - Disconnected
+2025-10-15 04:49:26,385 INFO ib - Connecting IB: host=127.0.0.1 port=7497 clientId=10
+2025-10-15 04:49:26,526 INFO ib - Connected
+2025-10-15 04:49:26,644 INFO ib - Disconnected
+2025-10-15 04:58:10,748 INFO ib - Connecting IB: host=127.0.0.1 port=7497 clientId=10
+2025-10-15 04:58:10,817 INFO ib - Connecting IB: host=127.0.0.1 port=7497 clientId=10
+2025-10-15 04:58:10,819 INFO ib - Connecting IB: host=127.0.0.1 port=7497 clientId=10
+2025-10-15 05:14:26,996 INFO ib - Connecting IB: host=127.0.0.1 port=7497 clientId=10
+2025-10-15 05:14:27,116 INFO ib - Connected
+2025-10-15 05:14:27,205 INFO get_account - === Account Summary ===
+2025-10-15 05:14:27,206 INFO get_account - AccountType: CORPORATION 
+2025-10-15 05:14:27,207 INFO get_account - Cushion: 1 
+2025-10-15 05:14:27,207 INFO get_account - DayTradesRemaining: -1 
+2025-10-15 05:14:27,207 INFO get_account - DayTradesRemainingT+1: -1 
+2025-10-15 05:14:27,208 INFO get_account - DayTradesRemainingT+2: -1 
+2025-10-15 05:14:27,208 INFO get_account - DayTradesRemainingT+3: -1 
+2025-10-15 05:14:27,208 INFO get_account - DayTradesRemainingT+4: -1 
+2025-10-15 05:14:27,210 INFO get_account - LookAheadNextChange: 0 
+2025-10-15 05:14:27,210 INFO get_account - AccruedCash: 1470.03 USD
+2025-10-15 05:14:27,210 INFO get_account - AvailableFunds: 1143024.31 USD
+2025-10-15 05:14:27,210 INFO get_account - BuyingPower: 4572097.24 USD
+2025-10-15 05:14:27,211 INFO get_account - EquityWithLoanValue: 1143024.31 USD
+2025-10-15 05:14:27,211 INFO get_account - ExcessLiquidity: 1143024.31 USD
+2025-10-15 05:14:27,211 INFO get_account - FullAvailableFunds: 1143024.31 USD
+2025-10-15 05:14:27,211 INFO get_account - FullExcessLiquidity: 1143024.31 USD
+2025-10-15 05:14:27,211 INFO get_account - FullInitMarginReq: 0.00 USD
+2025-10-15 05:14:27,211 INFO get_account - FullMaintMarginReq: 0.00 USD
+2025-10-15 05:14:27,211 INFO get_account - GrossPositionValue: 0.00 USD
+2025-10-15 05:14:27,212 INFO get_account - InitMarginReq: 0.00 USD
+2025-10-15 05:14:27,212 INFO get_account - LookAheadAvailableFunds: 1143024.31 USD
+2025-10-15 05:14:27,212 INFO get_account - LookAheadExcessLiquidity: 1143024.31 USD
+2025-10-15 05:14:27,212 INFO get_account - LookAheadInitMarginReq: 0.00 USD
+2025-10-15 05:14:27,212 INFO get_account - LookAheadMaintMarginReq: 0.00 USD
+2025-10-15 05:14:27,212 INFO get_account - MaintMarginReq: 0.00 USD
+2025-10-15 05:14:27,213 INFO get_account - NetLiquidation: 1144494.34 USD
+2025-10-15 05:14:27,213 INFO get_account - PreviousDayEquityWithLoanValue: 1143024.31 USD
+2025-10-15 05:14:27,213 INFO get_account - RegTEquity: 1144494.34 USD
+2025-10-15 05:14:27,213 INFO get_account - RegTMargin: 0.00 USD
+2025-10-15 05:14:27,213 INFO get_account - SMA: 1144494.34 USD
+2025-10-15 05:14:27,213 INFO get_account - TotalCashValue: 1143024.31 USD
+2025-10-15 05:14:27,213 INFO get_account - === Positions ===
+2025-10-15 05:14:27,213 INFO get_account - === Open Orders ===
+2025-10-15 05:14:27,214 INFO ib - Disconnected
+2025-10-15 14:24:04,464 INFO ib - Connecting IB: host=127.0.0.1 port=7497 clientId=10
+2025-10-15 14:24:04,589 INFO ib - Connected
+2025-10-15 14:24:04,691 INFO ib - Disconnected
+2025-10-15 14:24:05,952 INFO ib - Connecting IB: host=127.0.0.1 port=7497 clientId=10
+2025-10-15 14:24:06,078 INFO ib - Connected
+2025-10-15 14:24:06,170 INFO ib - Disconnected
+2025-10-15 14:24:06,217 INFO ib - Connecting IB: host=127.0.0.1 port=7497 clientId=10
+2025-10-15 14:24:06,461 INFO ib - Connecting IB: host=127.0.0.1 port=7497 clientId=10
+2025-10-15 14:24:06,643 INFO ib - Connected
+2025-10-15 14:24:07,653 INFO ib - Disconnected
+2025-10-15 14:24:07,673 INFO ib - Connecting IB: host=127.0.0.1 port=7497 clientId=10
+2025-10-15 14:24:07,804 INFO ib - Connected
+2025-10-15 14:24:07,899 INFO ib - Disconnected
+2025-10-15 14:24:07,915 INFO ib - Connecting IB: host=127.0.0.1 port=7497 clientId=10
+2025-10-15 14:24:08,349 INFO ib - Connected
+2025-10-15 14:24:08,443 INFO ib - Disconnected
+2025-10-15 06:25:17,490 INFO ib - Connecting IB: host=127.0.0.1 port=7497 clientId=10
+2025-10-15 06:25:17,627 INFO ib - Connected
+2025-10-15 06:29:23,560 INFO orders - [DRY RUN] STOCK MKT BUY 15000 NUGT
+2025-10-15 06:29:23,560 INFO orders - [DRY RUN] STOCK STP SELL 15000 NUGT @ 37.6 (ref=40.0, pct=0.06)
+2025-10-15 07:09:17,508 INFO ib - Connecting IB: host=127.0.0.1 port=7497 clientId=10
+2025-10-15 07:17:11,334 INFO ib - Connecting IB: host=127.0.0.1 port=7497 clientId=11
+2025-10-15 07:17:11,484 INFO ib - Connected (MDType=3)
+2025-10-15 07:18:46,860 INFO ib - Connecting IB: host=127.0.0.1 port=7497 clientId=10
+2025-10-15 07:19:06,869 INFO ib - Connecting IB: host=127.0.0.1 port=7497 clientId=11
+2025-10-15 07:19:26,880 INFO ib - Connecting IB: host=127.0.0.1 port=7497 clientId=12
+2025-10-15 07:19:27,019 INFO ib - Connected (clientId=12, MDType=3)
+2025-10-15 07:24:08,314 INFO ib - Connecting IB: host=127.0.0.1 port=7497 clientId=10
+2025-10-15 07:24:08,460 INFO ib - Connected (clientId=10, MDType=3)
+2025-10-15 07:24:31,657 INFO orders - [DRY RUN] STOCK MKT BUY 3750 NUGT
+2025-10-15 07:24:31,657 INFO orders - [DRY RUN] STOCK STP SELL 3750 NUGT @ 150.4 (ref=160.0, pct=0.06)
+2025-10-15 07:42:32,276 INFO ib - Connecting IB: host=127.0.0.1 port=7497 clientId=10
+2025-10-15 07:42:32,408 INFO ib - Connected (clientId=10, MDType=3)
+2025-10-15 07:42:39,934 INFO orders - [DRY RUN] STOCK MKT BUY 6000 NUGT
+2025-10-15 07:42:39,935 INFO orders - [DRY RUN] STOCK STP SELL 6000 NUGT @ 94.0 (ref=100.0, pct=0.06)
+2025-10-16 03:24:44,225 INFO ib - Connecting IB: host=127.0.0.1 port=7497 clientId=10
+2025-10-16 03:24:44,839 INFO ib - Connected (clientId=10, MDType=3)
+2025-10-16 03:41:50,065 INFO ib - Connecting IB: host=127.0.0.1 port=7497 clientId=10
+2025-10-16 03:41:50,216 INFO ib - Connected (clientId=10, MDType=3)
+2025-10-16 03:43:29,519 INFO st - [price-probe] start symbol=NUGT timeout=12.0
+2025-10-16 03:45:01,801 INFO st - [price-probe] start symbol=NUGT timeout=15.0
+2025-10-16 03:51:01,137 INFO ib - Connecting IB: host=127.0.0.1 port=7497 clientId=10
+2025-10-16 03:51:01,266 INFO ib - Connected (clientId=10, MDType=3)
+2025-10-16 03:51:03,817 INFO st - [price-probe] start symbol=NUGT timeout=12.0
+2025-10-16 03:53:11,880 INFO st - [price-probe] start symbol=NUGT timeout=14.5
+2025-10-16 03:53:13,289 INFO st - [price-probe] start symbol=NUGT timeout=14.5
+2025-10-16 03:54:14,056 INFO st - [price-probe] start symbol=TMF timeout=10.5
+2025-10-16 04:30:22,446 INFO ib - Connecting IB: host=127.0.0.1 port=7497 clientId=10
+2025-10-16 04:30:22,585 INFO ib - Connected (clientId=10, MDType=3)
+2025-10-16 04:45:20,421 INFO st - [price-probe] start symbol=NUGT timeout=12.0
+2025-10-16 04:48:05,474 INFO ib - Connecting IB: host=127.0.0.1 port=7497 clientId=10
+2025-10-16 04:48:05,615 INFO ib - Connected (clientId=10, MDType=3)
+2025-10-16 04:54:57,132 INFO ib - Connecting IB: host=127.0.0.1 port=7497 clientId=10
+2025-10-16 04:54:57,263 INFO ib - Connected (clientId=10, MDType=3)
+2025-10-16 04:57:41,928 INFO ib - Connecting IB: host=127.0.0.1 port=7497 clientId=10
+2025-10-16 04:58:01,948 INFO ib - Connecting IB: host=127.0.0.1 port=7497 clientId=11
+2025-10-16 04:58:02,093 INFO ib - Connected (clientId=11, MDType=3)
+2025-10-16 05:00:27,464 INFO ib - Connecting IB: host=127.0.0.1 port=7497 clientId=10
+2025-10-16 05:00:27,578 INFO ib - Connected (clientId=10, MDType=3)
+2025-10-16 05:11:49,018 INFO ib - Connecting IB: host=127.0.0.1 port=7497 clientId=10
+2025-10-16 05:11:49,145 INFO ib - Connected (clientId=10, MDType=3)
+2025-10-16 05:11:53,610 INFO orders - [DEBUG] enter run_nugt_cc live=False budget=600000.0 stop=0.06
+2025-10-16 05:11:53,612 INFO orders - [DRY RUN] STOCK MKT BUY 6000 NUGT
+2025-10-16 05:11:53,614 INFO orders - [DRY RUN] STOCK STP SELL 6000 NUGT @ 94.00 (ref=100.00, pct=0.06)
+2025-10-16 05:14:42,592 INFO orders - [DEBUG] enter run_nugt_cc live=False budget=600000.0 stop=0.06
+2025-10-16 05:14:42,592 INFO orders - [DRY RUN] STOCK MKT BUY 5454 NUGT
+2025-10-16 05:14:42,594 INFO orders - [DRY RUN] STOCK STP SELL 5454 NUGT @ 103.40 (ref=110.00, pct=0.06)
+2025-10-16 05:25:22,094 INFO ib - Connecting IB: host=127.0.0.1 port=7497 clientId=10
+2025-10-16 05:25:22,229 INFO ib - Connected (clientId=10, MDType=3)
+2025-10-16 16:09:55,072 INFO ib - Connecting IB: host=127.0.0.1 port=7497 clientId=10
+2025-10-16 16:09:55,074 INFO ib - Connecting IB: host=127.0.0.1 port=7497 clientId=11
+2025-10-16 16:09:55,082 INFO ib - Connecting IB: host=127.0.0.1 port=7497 clientId=12
+2025-10-16 16:09:55,082 INFO ib - Connecting IB: host=127.0.0.1 port=7497 clientId=13
+2025-10-16 16:09:55,083 INFO ib - Connecting IB: host=127.0.0.1 port=7497 clientId=14
+2025-10-16 16:09:55,083 INFO ib - Connecting IB: host=127.0.0.1 port=7497 clientId=15
+2025-10-16 16:09:55,084 INFO ib - Connecting IB: host=127.0.0.1 port=7497 clientId=16
+2025-10-16 16:09:55,084 INFO ib - Connecting IB: host=127.0.0.1 port=7497 clientId=17
+2025-10-16 16:09:55,084 INFO ib - Connecting IB: host=127.0.0.1 port=7497 clientId=18
+2025-10-16 16:09:55,085 INFO ib - Connecting IB: host=127.0.0.1 port=7497 clientId=19
+2025-10-16 07:10:16,715 INFO ib - Connecting IB: host=127.0.0.1 port=7497 clientId=10
+2025-10-16 07:10:16,717 INFO ib - Connecting IB: host=127.0.0.1 port=7497 clientId=11
+2025-10-16 07:10:16,724 INFO ib - Connecting IB: host=127.0.0.1 port=7497 clientId=12
+2025-10-16 07:10:16,725 INFO ib - Connecting IB: host=127.0.0.1 port=7497 clientId=13
+2025-10-16 07:10:16,726 INFO ib - Connecting IB: host=127.0.0.1 port=7497 clientId=14
+2025-10-16 07:10:16,726 INFO ib - Connecting IB: host=127.0.0.1 port=7497 clientId=15
+2025-10-16 07:10:16,727 INFO ib - Connecting IB: host=127.0.0.1 port=7497 clientId=16
+2025-10-16 07:10:16,727 INFO ib - Connecting IB: host=127.0.0.1 port=7497 clientId=17
+2025-10-16 07:10:16,727 INFO ib - Connecting IB: host=127.0.0.1 port=7497 clientId=18
+2025-10-16 07:10:16,728 INFO ib - Connecting IB: host=127.0.0.1 port=7497 clientId=19
+2025-10-16 07:14:27,384 INFO ib - Connecting IB: host=127.0.0.1 port=7497 clientId=10
+2025-10-16 07:14:27,386 INFO ib - Connecting IB: host=127.0.0.1 port=7497 clientId=11
+2025-10-16 07:14:27,388 INFO ib - Connecting IB: host=127.0.0.1 port=7497 clientId=12
+2025-10-16 07:14:27,388 INFO ib - Connecting IB: host=127.0.0.1 port=7497 clientId=13
+2025-10-16 07:14:27,389 INFO ib - Connecting IB: host=127.0.0.1 port=7497 clientId=14
+2025-10-16 07:14:27,389 INFO ib - Connecting IB: host=127.0.0.1 port=7497 clientId=15
+2025-10-16 07:14:27,390 INFO ib - Connecting IB: host=127.0.0.1 port=7497 clientId=16
+2025-10-16 07:14:27,390 INFO ib - Connecting IB: host=127.0.0.1 port=7497 clientId=17
+2025-10-16 07:14:27,390 INFO ib - Connecting IB: host=127.0.0.1 port=7497 clientId=18
+2025-10-16 07:14:27,391 INFO ib - Connecting IB: host=127.0.0.1 port=7497 clientId=19
+2025-10-16 07:14:53,802 INFO ib - Connecting IB: host=127.0.0.1 port=7497 clientId=10
+2025-10-16 07:14:53,804 INFO ib - Connecting IB: host=127.0.0.1 port=7497 clientId=11
+2025-10-16 07:14:53,811 INFO ib - Connecting IB: host=127.0.0.1 port=7497 clientId=12
+2025-10-16 07:14:53,812 INFO ib - Connecting IB: host=127.0.0.1 port=7497 clientId=13
+2025-10-16 07:14:53,812 INFO ib - Connecting IB: host=127.0.0.1 port=7497 clientId=14
+2025-10-16 07:14:53,812 INFO ib - Connecting IB: host=127.0.0.1 port=7497 clientId=15
+2025-10-16 07:14:53,813 INFO ib - Connecting IB: host=127.0.0.1 port=7497 clientId=16
+2025-10-16 07:14:53,813 INFO ib - Connecting IB: host=127.0.0.1 port=7497 clientId=17
+2025-10-16 07:14:53,814 INFO ib - Connecting IB: host=127.0.0.1 port=7497 clientId=18
+2025-10-16 07:14:53,815 INFO ib - Connecting IB: host=127.0.0.1 port=7497 clientId=19
+2025-10-16 07:17:06,254 INFO ib - Connecting IB: host=127.0.0.1 port=7497 clientId=10
+2025-10-16 07:17:06,255 INFO ib - Connecting IB: host=127.0.0.1 port=7497 clientId=11
+2025-10-16 07:17:06,264 INFO ib - Connecting IB: host=127.0.0.1 port=7497 clientId=12
+2025-10-16 07:17:06,264 INFO ib - Connecting IB: host=127.0.0.1 port=7497 clientId=13
+2025-10-16 07:17:06,265 INFO ib - Connecting IB: host=127.0.0.1 port=7497 clientId=14
+2025-10-16 07:17:06,265 INFO ib - Connecting IB: host=127.0.0.1 port=7497 clientId=15
+2025-10-16 07:17:06,266 INFO ib - Connecting IB: host=127.0.0.1 port=7497 clientId=16
+2025-10-16 07:17:06,266 INFO ib - Connecting IB: host=127.0.0.1 port=7497 clientId=17
+2025-10-16 07:17:06,267 INFO ib - Connecting IB: host=127.0.0.1 port=7497 clientId=18
+2025-10-16 07:17:06,267 INFO ib - Connecting IB: host=127.0.0.1 port=7497 clientId=19
+2025-10-16 07:23:16,304 INFO ib - CONNECT_MODE=sync (IB.connect)
+2025-10-16 07:23:16,306 INFO ib - Connecting IB: host=127.0.0.1 port=7497 clientId=10
+2025-10-16 07:23:16,307 INFO ib - Connecting IB: host=127.0.0.1 port=7497 clientId=11
+2025-10-16 07:23:16,316 INFO ib - Connecting IB: host=127.0.0.1 port=7497 clientId=12
+2025-10-16 07:23:16,316 INFO ib - Connecting IB: host=127.0.0.1 port=7497 clientId=13
+2025-10-16 07:23:16,316 INFO ib - Connecting IB: host=127.0.0.1 port=7497 clientId=14
+2025-10-16 07:23:16,317 INFO ib - Connecting IB: host=127.0.0.1 port=7497 clientId=15
+2025-10-16 07:23:16,318 INFO ib - Connecting IB: host=127.0.0.1 port=7497 clientId=16
+2025-10-16 07:23:16,319 INFO ib - Connecting IB: host=127.0.0.1 port=7497 clientId=17
+2025-10-16 07:23:16,319 INFO ib - Connecting IB: host=127.0.0.1 port=7497 clientId=18
+2025-10-16 07:23:16,320 INFO ib - Connecting IB: host=127.0.0.1 port=7497 clientId=19
+2025-10-16 07:26:13,114 INFO ib - CONNECT_MODE=sync (IB.connect)
+2025-10-16 07:26:13,117 INFO ib - Connecting IB: host=127.0.0.1 port=7497 clientId=10
+2025-10-16 07:26:13,252 INFO ib - Connected (clientId=10, MDType=3)
+2025-10-16 07:27:40,439 ERROR st - price fetch error
+Traceback (most recent call last):
+  File "C:\Users\ktaki\TWS_AutoTrader\streamlit_app.py", line 308, in <module>
+    prices = get_prices(cli.ib, sel, delay_type=int(md_type))
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ktaki\TWS_AutoTrader\src\price.py", line 22, in get_prices
+    ib.reqMarketDataType(delay_type)  # 1=RT,2=Frozen,3=Delayed,4=DelayedFrozen
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ktaki\TWS_AutoTrader\venv\Lib\site-packages\ib_insync\ib.py", line 1161, in reqMarketDataType
+    self.client.reqMarketDataType(marketDataType)
+  File "C:\Users\ktaki\TWS_AutoTrader\venv\Lib\site-packages\ib_insync\client.py", line 832, in reqMarketDataType
+    self.send(59, 1, marketDataType)
+  File "C:\Users\ktaki\TWS_AutoTrader\venv\Lib\site-packages\ib_insync\client.py", line 269, in send
+    self.sendMsg(msg.getvalue())
+  File "C:\Users\ktaki\TWS_AutoTrader\venv\Lib\site-packages\ib_insync\client.py", line 272, in sendMsg
+    loop = getLoop()
+           ^^^^^^^^^
+  File "C:\Users\ktaki\TWS_AutoTrader\venv\Lib\site-packages\ib_insync\util.py", line 464, in getLoop
+    return asyncio.get_event_loop_policy().get_event_loop()
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ktaki\AppData\Local\Programs\Python\Python312\Lib\asyncio\events.py", line 702, in get_event_loop
+    raise RuntimeError('There is no current event loop in thread %r.'
+RuntimeError: There is no current event loop in thread 'ScriptRunner.scriptThread'.
+2025-10-16 07:38:37,235 INFO ib - CONNECT_MODE=sync (IB.connect)
+2025-10-16 07:38:37,240 INFO ib - Connecting IB: host=127.0.0.1 port=7497 clientId=10
+2025-10-16 07:38:37,375 INFO ib - Connected (clientId=10, MDType=3)
+2025-10-16 07:46:19,984 INFO ib - CONNECT_MODE=sync (IB.connect)
+2025-10-16 07:46:19,988 INFO ib - Connecting IB: host=127.0.0.1 port=7497 clientId=10
+2025-10-16 07:46:20,120 INFO ib - Connected (clientId=10, MDType=3)
+2025-10-16 07:49:25,080 INFO ib - CONNECT_MODE=sync (IB.connect)
+2025-10-16 07:49:25,088 INFO ib - Connecting IB: host=127.0.0.1 port=7497 clientId=10
+2025-10-16 07:49:45,098 INFO ib - Connecting IB: host=127.0.0.1 port=7497 clientId=11
+2025-10-16 07:49:45,228 INFO ib - Connected (clientId=11, MDType=3)
+2025-10-16 07:50:08,055 INFO ib - Disconnected
+2025-10-16 07:50:47,859 INFO ib - CONNECT_MODE=sync (IB.connect)
+2025-10-16 07:50:47,861 INFO ib - Connecting IB: host=127.0.0.1 port=7497 clientId=10
+2025-10-16 07:50:47,998 INFO ib - Connected (clientId=10, MDType=3)
+2025-10-16 08:00:27,523 INFO ib - Disconnected
+2025-10-16 08:04:43,237 INFO ib - CONNECT_MODE=sync (IB.connect)
+2025-10-16 08:04:43,244 INFO ib - Connecting IB: host=127.0.0.1 port=7497 clientId=10
+2025-10-16 08:04:43,364 INFO ib - Connected (clientId=10, MDType=3)
+2025-10-16 08:05:31,750 INFO ib - CONNECT_MODE=sync (IB.connect)
+2025-10-16 08:05:31,753 INFO ib - Connecting IB: host=127.0.0.1 port=7497 clientId=10
+2025-10-16 08:05:51,771 INFO ib - Connecting IB: host=127.0.0.1 port=7497 clientId=11
+2025-10-16 08:05:51,908 INFO ib - Connected (clientId=11, MDType=3)
+2025-10-16 08:06:14,832 INFO orders - [DEBUG] run_etf_buy_with_stop symbol=TMF live=False budget=600000.0 ref=5.0
+2025-10-16 08:06:14,833 INFO orders - [DRY RUN] TMF LMT BUY 120000 @ 5.01
+2025-10-16 08:06:14,834 INFO orders - [DRY RUN] TMF STP SELL 120000 @ 4.70 (ref=5.00)
+2025-10-16 08:06:14,835 INFO orders - TMF: price≈5.00, budget=600000.0, shares=120000
+2025-10-16 08:06:14,835 INFO orders - Bracket: BUY LMT 120000 @ 5.01 → STOP 4.70 | TIF=DAY outsideRth=False
+2025-10-16 08:06:33,488 INFO orders - [DEBUG] run_etf_buy_with_stop symbol=TMF live=True budget=600000.0 ref=5.0
+2025-10-16 08:06:33,489 ERROR orders - TMF manual run failed
+Traceback (most recent call last):
+  File "C:\Users\ktaki\TWS_AutoTrader\streamlit_app.py", line 367, in <module>
+    msgs = run_etf_buy_with_stop("TMF", budget_tmf, float(price), live)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ktaki\TWS_AutoTrader\streamlit_app.py", line 212, in run_etf_buy_with_stop
+    parent, child, parent_trade = bracket_buy_with_stop(
+                                  ^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ktaki\TWS_AutoTrader\src\ib\orders.py", line 156, in bracket_buy_with_stop
+    parent_trade = ib.placeOrder(c, parent)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ktaki\TWS_AutoTrader\venv\Lib\site-packages\ib_insync\ib.py", line 655, in placeOrder
+    self.client.placeOrder(orderId, contract, order)
+  File "C:\Users\ktaki\TWS_AutoTrader\venv\Lib\site-packages\ib_insync\client.py", line 620, in placeOrder
+    self.send(*fields)
+  File "C:\Users\ktaki\TWS_AutoTrader\venv\Lib\site-packages\ib_insync\client.py", line 269, in send
+    self.sendMsg(msg.getvalue())
+  File "C:\Users\ktaki\TWS_AutoTrader\venv\Lib\site-packages\ib_insync\client.py", line 272, in sendMsg
+    loop = getLoop()
+           ^^^^^^^^^
+  File "C:\Users\ktaki\TWS_AutoTrader\venv\Lib\site-packages\ib_insync\util.py", line 464, in getLoop
+    return asyncio.get_event_loop_policy().get_event_loop()
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ktaki\AppData\Local\Programs\Python\Python312\Lib\asyncio\events.py", line 702, in get_event_loop
+    raise RuntimeError('There is no current event loop in thread %r.'
+RuntimeError: There is no current event loop in thread 'ScriptRunner.scriptThread'.
+2025-10-16 08:10:28,090 INFO ib - CONNECT_MODE=sync (IB.connect)
+2025-10-16 08:10:28,093 INFO ib - Connecting IB: host=127.0.0.1 port=7497 clientId=10
+2025-10-16 08:10:28,209 INFO ib - Connected (clientId=10, MDType=3)
+2025-10-16 08:10:39,411 INFO orders - [DEBUG] enter run_nugt_cc live=True budget=600000.0 stop=0.06
+2025-10-16 08:10:39,412 INFO orders - [LIVE PREVIEW] BUY LMT 6000 @ 100.15 -> STOP 94.00 (ref=100.00, TIF=DAY, outsideRth=False)
+2025-10-16 08:10:39,413 ERROR orders - manual run failed
+Traceback (most recent call last):
+  File "C:\Users\ktaki\TWS_AutoTrader\streamlit_app.py", line 338, in <module>
+    msgs = run_nugt_cc(budget, stop_pct, float(price), live)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ktaki\TWS_AutoTrader\streamlit_app.py", line 137, in run_nugt_cc
+    parent, child, parent_trade = bracket_buy_with_stop(
+                                  ^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ktaki\TWS_AutoTrader\src\ib\orders.py", line 156, in bracket_buy_with_stop
+    parent_trade = ib.placeOrder(c, parent)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ktaki\TWS_AutoTrader\venv\Lib\site-packages\ib_insync\ib.py", line 655, in placeOrder
+    self.client.placeOrder(orderId, contract, order)
+  File "C:\Users\ktaki\TWS_AutoTrader\venv\Lib\site-packages\ib_insync\client.py", line 620, in placeOrder
+    self.send(*fields)
+  File "C:\Users\ktaki\TWS_AutoTrader\venv\Lib\site-packages\ib_insync\client.py", line 269, in send
+    self.sendMsg(msg.getvalue())
+  File "C:\Users\ktaki\TWS_AutoTrader\venv\Lib\site-packages\ib_insync\client.py", line 272, in sendMsg
+    loop = getLoop()
+           ^^^^^^^^^
+  File "C:\Users\ktaki\TWS_AutoTrader\venv\Lib\site-packages\ib_insync\util.py", line 464, in getLoop
+    return asyncio.get_event_loop_policy().get_event_loop()
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ktaki\AppData\Local\Programs\Python\Python312\Lib\asyncio\events.py", line 702, in get_event_loop
+    raise RuntimeError('There is no current event loop in thread %r.'
+RuntimeError: There is no current event loop in thread 'ScriptRunner.scriptThread'.
+2025-10-23 08:15:30,724 INFO ib - CONNECT_MODE=sync (IB.connect)
+2025-10-23 08:15:30,730 INFO ib - Connecting IB: host=127.0.0.1 port=7497 clientId=10
+2025-10-23 08:15:31,071 INFO ib - Connected (clientId=10, MDType=3)
+2025-10-24 05:51:19,557 INFO ib - CONNECT_MODE=sync (IB.connect)
+2025-10-24 05:51:19,577 INFO ib - Connecting IB: host=127.0.0.1 port=7497 clientId=10
+2025-10-24 05:51:19,972 INFO ib - Connected (clientId=10, MDType=3)
+2025-10-24 06:15:11,762 INFO ib - Disconnected
+2025-10-24 06:29:06,329 INFO ib - CONNECT_MODE=sync (IB.connect)
+2025-10-24 06:29:06,335 INFO ib - Connecting IB: host=127.0.0.1 port=7497 clientId=10
+2025-10-24 06:29:06,754 INFO ib - Connected (clientId=10, MDType=3)
+2025-10-24 06:39:36,669 INFO ib - Disconnected
+2025-10-24 06:39:38,263 INFO ib - CONNECT_MODE=sync (IB.connect)
+2025-10-24 06:39:38,273 INFO ib - Connecting IB: host=127.0.0.1 port=7497 clientId=10
+2025-10-24 06:39:38,416 INFO ib - Connected (clientId=10, MDType=3)
+2025-10-24 06:53:31,245 INFO ib - Disconnected
+2025-10-24 07:04:34,139 INFO ib - CONNECT_MODE=sync (IB.connect)
+2025-10-24 07:04:34,145 INFO ib - Connecting IB: host=127.0.0.1 port=7497 clientId=10
+2025-10-24 07:04:34,317 INFO ib - Connected (clientId=10, MDType=3)
+2025-10-24 07:04:43,977 INFO orders - [DEBUG] enter run_nugt_cc live=False budget=600000.0 stop=0.06
+2025-10-24 07:04:43,981 INFO orders - [DRY RUN] STOCK LMT BUY 6000 NUGT @ 100.15
+2025-10-24 07:04:43,982 INFO orders - [DRY RUN] STOCK STP SELL 6000 NUGT @ 94.00 (ref=100.00)
+2025-10-24 07:04:43,983 ERROR orders - manual run failed
+Traceback (most recent call last):
+  File "C:\Users\ktaki\TWS_AutoTrader\streamlit_app.py", line 338, in <module>
+    msgs = run_nugt_cc(budget, stop_pct, float(price), live)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ktaki\TWS_AutoTrader\streamlit_app.py", line 168, in run_nugt_cc
+    opt, strike, expiry = pick_option_contract(cli.ib, und, right="C", pct_offset=0.0,
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ktaki\TWS_AutoTrader\src\ib\options.py", line 104, in pick_option_contract
+    cds = ib.reqContractDetails(und_contract)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ktaki\TWS_AutoTrader\venv\Lib\site-packages\ib_insync\ib.py", line 948, in reqContractDetails
+    return self._run(self.reqContractDetailsAsync(contract))
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ktaki\TWS_AutoTrader\venv\Lib\site-packages\ib_insync\ib.py", line 1930, in reqContractDetailsAsync
+    future = self.wrapper.startReq(reqId, contract)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ktaki\TWS_AutoTrader\venv\Lib\site-packages\ib_insync\wrapper.py", line 139, in startReq
+    future: asyncio.Future = asyncio.Future()
+                             ^^^^^^^^^^^^^^^^
+  File "C:\Users\ktaki\AppData\Local\Programs\Python\Python312\Lib\asyncio\events.py", line 702, in get_event_loop
+    raise RuntimeError('There is no current event loop in thread %r.'
+RuntimeError: There is no current event loop in thread 'ScriptRunner.scriptThread'.
+2025-10-24 07:07:52,727 INFO orders - [DEBUG] enter run_nugt_cc live=False budget=600000.0 stop=0.06
+2025-10-24 07:07:52,729 INFO orders - [DRY RUN] STOCK LMT BUY 6000 NUGT @ 100.15
+2025-10-24 07:07:52,730 INFO orders - [DRY RUN] STOCK STP SELL 6000 NUGT @ 94.00 (ref=100.00)
+2025-10-24 07:08:08,831 INFO orders - [DEBUG] enter run_nugt_cc live=False budget=600000.0 stop=0.06
+2025-10-24 07:08:08,832 INFO orders - [DRY RUN] STOCK LMT BUY 6000 NUGT @ 100.15
+2025-10-24 07:08:08,833 INFO orders - [DRY RUN] STOCK STP SELL 6000 NUGT @ 94.00 (ref=100.00)
+2025-10-24 07:08:08,833 ERROR orders - manual run failed
+Traceback (most recent call last):
+  File "C:\Users\ktaki\TWS_AutoTrader\streamlit_app.py", line 338, in <module>
+    msgs = run_nugt_cc(budget, stop_pct, float(price), live)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ktaki\TWS_AutoTrader\streamlit_app.py", line 168, in run_nugt_cc
+    opt, strike, expiry = pick_option_contract(cli.ib, und, right="C", pct_offset=0.0,
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ktaki\TWS_AutoTrader\src\ib\options.py", line 104, in pick_option_contract
+    cds = ib.reqContractDetails(und_contract)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ktaki\TWS_AutoTrader\venv\Lib\site-packages\ib_insync\ib.py", line 948, in reqContractDetails
+    return self._run(self.reqContractDetailsAsync(contract))
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ktaki\TWS_AutoTrader\venv\Lib\site-packages\ib_insync\ib.py", line 1930, in reqContractDetailsAsync
+    future = self.wrapper.startReq(reqId, contract)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ktaki\TWS_AutoTrader\venv\Lib\site-packages\ib_insync\wrapper.py", line 139, in startReq
+    future: asyncio.Future = asyncio.Future()
+                             ^^^^^^^^^^^^^^^^
+  File "C:\Users\ktaki\AppData\Local\Programs\Python\Python312\Lib\asyncio\events.py", line 702, in get_event_loop
+    raise RuntimeError('There is no current event loop in thread %r.'
+RuntimeError: There is no current event loop in thread 'ScriptRunner.scriptThread'.
+2025-10-24 07:10:19,342 INFO ib - Disconnected
+2025-10-24 07:10:20,978 INFO ib - CONNECT_MODE=sync (IB.connect)
+2025-10-24 07:10:20,980 INFO ib - Connecting IB: host=127.0.0.1 port=7497 clientId=10
+2025-10-24 07:10:21,153 INFO ib - Connected (clientId=10, MDType=3)
+2025-10-24 07:10:48,203 INFO orders - [DEBUG] enter run_nugt_cc live=False budget=600000.0 stop=0.06
+2025-10-24 07:10:48,204 INFO orders - [DRY RUN] STOCK LMT BUY 6000 NUGT @ 100.15
+2025-10-24 07:10:48,207 INFO orders - [DRY RUN] STOCK STP SELL 6000 NUGT @ 94.00 (ref=100.00)
+2025-10-24 07:11:07,529 INFO orders - [DEBUG] enter run_nugt_cc live=True budget=600000.0 stop=0.06
+2025-10-24 07:11:07,530 INFO orders - [LIVE PREVIEW] BUY LMT 6000 @ 100.15 -> STOP 94.00 (ref=100.00, TIF=DAY, outsideRth=False)
+2025-10-24 07:11:07,532 INFO orders - [PLACED] orderId=26 permId=0 parentType=LMT
+2025-10-24 07:12:30,799 INFO ib - Disconnected
+2025-10-24 07:12:32,569 INFO ib - CONNECT_MODE=sync (IB.connect)
+2025-10-24 07:12:32,574 INFO ib - Connecting IB: host=127.0.0.1 port=7497 clientId=10
+2025-10-24 07:12:32,703 INFO ib - Connected (clientId=10, MDType=3)
+2025-10-24 07:12:44,017 INFO orders - [DEBUG] run_etf_buy_with_stop symbol=TMF live=True budget=600000.0 ref=5.0
+2025-10-24 07:12:44,019 INFO orders - [PLACED] orderId=32 permId=0 parentType=LMT
+2025-10-24 07:12:44,020 INFO orders - TMF: price≈5.00, budget=600000.0, shares=120000
+2025-10-24 07:12:44,021 INFO orders - Bracket: BUY LMT 120000 @ 5.01 → STOP 4.70 | TIF=DAY outsideRth=False
+2025-10-24 07:13:22,223 INFO orders - [DEBUG] run_etf_buy_with_stop symbol=UVIX live=False budget=300000.0 ref=10.0
+2025-10-24 07:13:22,224 INFO orders - [DRY RUN] UVIX LMT BUY 30000 @ 10.02
+2025-10-24 07:13:22,224 INFO orders - [DRY RUN] UVIX STP SELL 30000 @ 9.40 (ref=10.00)
+2025-10-24 07:13:22,225 INFO orders - UVIX: price≈10.00, budget=300000.0, shares=30000
+2025-10-24 07:13:22,226 INFO orders - Bracket: BUY LMT 30000 @ 10.02 → STOP 9.40 | TIF=DAY outsideRth=False
+2025-10-24 07:13:55,070 INFO orders - [DEBUG] run_etf_buy_with_stop symbol=UVIX live=True budget=300000.0 ref=10.0
+2025-10-24 07:13:55,074 INFO orders - [PLACED] orderId=42 permId=0 parentType=LMT
+2025-10-24 07:13:55,077 INFO orders - UVIX: price≈10.00, budget=300000.0, shares=30000
+2025-10-24 07:13:55,078 INFO orders - Bracket: BUY LMT 30000 @ 10.02 → STOP 9.40 | TIF=DAY outsideRth=False
+2025-10-24 07:14:09,706 INFO orders - [DEBUG] run_etf_buy_with_stop symbol=UVIX live=False budget=300000.0 ref=10.0
+2025-10-24 07:14:09,707 INFO orders - [DRY RUN] UVIX LMT BUY 30000 @ 10.02
+2025-10-24 07:14:09,707 INFO orders - [DRY RUN] UVIX STP SELL 30000 @ 9.40 (ref=10.00)
+2025-10-24 07:14:09,709 INFO orders - UVIX: price≈10.00, budget=300000.0, shares=30000
+2025-10-24 07:14:09,710 INFO orders - Bracket: BUY LMT 30000 @ 10.02 → STOP 9.40 | TIF=DAY outsideRth=False
+2025-10-24 07:18:32,343 INFO ib - Disconnected
+2025-10-24 07:18:34,456 INFO ib - CONNECT_MODE=sync (IB.connect)
+2025-10-24 07:18:34,461 INFO ib - Connecting IB: host=127.0.0.1 port=7497 clientId=10
+2025-10-24 07:18:34,589 INFO ib - Connected (clientId=10, MDType=3)
+2025-10-24 08:42:02,944 INFO ib - CONNECT_MODE=sync (IB.connect)
+2025-10-24 08:42:02,949 INFO ib - Connecting IB: host=127.0.0.1 port=7497 clientId=10
+2025-10-24 08:42:22,964 INFO ib - Connecting IB: host=127.0.0.1 port=7497 clientId=11
+2025-10-24 08:42:42,995 INFO ib - Connecting IB: host=127.0.0.1 port=7497 clientId=12
+2025-10-28 06:04:08,618 INFO ib - CONNECT_MODE=sync (IB.connect)
+2025-10-28 06:04:08,624 INFO ib - Connecting IB: host=127.0.0.1 port=7497 clientId=10
+2025-10-28 06:04:09,213 INFO ib - Connected (clientId=10, MDType=3)
+2025-10-28 06:28:54,186 INFO ib - CONNECT_MODE=sync (IB.connect)
+2025-10-28 06:28:54,188 INFO ib - Connecting IB: host=127.0.0.1 port=7497 clientId=10
+2025-10-28 06:29:07,205 INFO ib - Disconnected
+2025-10-28 06:29:08,645 INFO ib - CONNECT_MODE=sync (IB.connect)
+2025-10-28 06:29:08,650 INFO ib - Connecting IB: host=127.0.0.1 port=7497 clientId=10
+2025-10-28 06:29:08,768 INFO ib - Connected (clientId=10, MDType=3)
+2025-10-28 06:29:14,209 INFO ib - Connecting IB: host=127.0.0.1 port=7497 clientId=11
+2025-10-28 06:29:14,209 INFO ib - Connecting IB: host=127.0.0.1 port=7497 clientId=12
+2025-10-28 06:29:14,222 INFO ib - Connecting IB: host=127.0.0.1 port=7497 clientId=13
+2025-10-28 06:29:14,223 INFO ib - Connecting IB: host=127.0.0.1 port=7497 clientId=14
+2025-10-28 06:29:14,223 INFO ib - Connecting IB: host=127.0.0.1 port=7497 clientId=15
+2025-10-28 06:29:14,223 INFO ib - Connecting IB: host=127.0.0.1 port=7497 clientId=16
+2025-10-28 06:29:14,224 INFO ib - Connecting IB: host=127.0.0.1 port=7497 clientId=17
+2025-10-28 06:29:14,224 INFO ib - Connecting IB: host=127.0.0.1 port=7497 clientId=18
+2025-10-28 06:29:14,224 INFO ib - Connecting IB: host=127.0.0.1 port=7497 clientId=19
+2025-10-28 06:29:17,046 INFO orders - [DEBUG] enter run_nugt_cc live=False budget=600000.0 stop=0.1
+2025-10-28 06:29:17,051 INFO orders - [DRY RUN] STOCK LMT BUY 6000 NUGT @ 100.15
+2025-10-28 06:29:17,051 INFO orders - [DRY RUN] STOCK STP SELL 6000 NUGT @ 90.00 (ref=100.00)
+2025-10-28 06:29:42,496 INFO orders - [DEBUG] enter run_nugt_cc live=False budget=600000.0 stop=0.1
+2025-10-28 06:29:42,496 INFO orders - [DRY RUN] STOCK LMT BUY 6000 NUGT @ 100.15
+2025-10-28 06:29:42,497 INFO orders - [DRY RUN] STOCK STP SELL 6000 NUGT @ 90.00 (ref=100.00)
+2025-10-28 06:29:54,579 INFO orders - [DEBUG] enter run_nugt_cc live=True budget=600000.0 stop=0.1
+2025-10-28 06:29:54,579 INFO orders - [LIVE PREVIEW] BUY LMT 6000 @ 100.15 -> STOP 90.00 (ref=100.00, TIF=DAY, outsideRth=False)
+2025-10-28 06:30:11,067 INFO orders - [DEBUG] run_tmf_cc live=True budget=600000.0 stop=0.07
+2025-10-28 06:30:18,072 INFO orders - [DEBUG] run_etf_buy_with_stop symbol=TMF live=True budget=600000.0 ref=43.0
+2025-10-28 06:30:18,074 ERROR orders - TMF manual run failed
+Traceback (most recent call last):
+  File "C:\Users\ktaki\TWS_AutoTrader\streamlit_app.py", line 547, in <module>
+    msgs = run_etf_buy_with_stop("TMF", budget_tmf, float(price), live)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ktaki\TWS_AutoTrader\streamlit_app.py", line 296, in run_etf_buy_with_stop
+    parent, child, parent_trade = bracket_buy_with_stop(
+                                  ^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ktaki\TWS_AutoTrader\src\ib\orders.py", line 156, in bracket_buy_with_stop
+    parent_trade = ib.placeOrder(c, parent)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ktaki\TWS_AutoTrader\venv\Lib\site-packages\ib_insync\ib.py", line 655, in placeOrder
+    self.client.placeOrder(orderId, contract, order)
+  File "C:\Users\ktaki\TWS_AutoTrader\venv\Lib\site-packages\ib_insync\client.py", line 620, in placeOrder
+    self.send(*fields)
+  File "C:\Users\ktaki\TWS_AutoTrader\venv\Lib\site-packages\ib_insync\client.py", line 269, in send
+    self.sendMsg(msg.getvalue())
+  File "C:\Users\ktaki\TWS_AutoTrader\venv\Lib\site-packages\ib_insync\client.py", line 272, in sendMsg
+    loop = getLoop()
+           ^^^^^^^^^
+  File "C:\Users\ktaki\TWS_AutoTrader\venv\Lib\site-packages\ib_insync\util.py", line 464, in getLoop
+    return asyncio.get_event_loop_policy().get_event_loop()
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ktaki\AppData\Local\Programs\Python\Python312\Lib\asyncio\events.py", line 702, in get_event_loop
+    raise RuntimeError('There is no current event loop in thread %r.'
+RuntimeError: There is no current event loop in thread 'ScriptRunner.scriptThread'.
+2025-10-28 06:30:31,289 INFO orders - [DEBUG] run_etf_buy_with_stop symbol=UVIX live=True budget=300000.0 ref=10.0
+2025-10-28 06:30:31,290 ERROR orders - UVIX manual run failed
+Traceback (most recent call last):
+  File "C:\Users\ktaki\TWS_AutoTrader\streamlit_app.py", line 575, in <module>
+    msgs = run_etf_buy_with_stop("UVIX", budget_uvix, float(price), live)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ktaki\TWS_AutoTrader\streamlit_app.py", line 296, in run_etf_buy_with_stop
+    parent, child, parent_trade = bracket_buy_with_stop(
+                                  ^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ktaki\TWS_AutoTrader\src\ib\orders.py", line 156, in bracket_buy_with_stop
+    parent_trade = ib.placeOrder(c, parent)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ktaki\TWS_AutoTrader\venv\Lib\site-packages\ib_insync\ib.py", line 655, in placeOrder
+    self.client.placeOrder(orderId, contract, order)
+  File "C:\Users\ktaki\TWS_AutoTrader\venv\Lib\site-packages\ib_insync\client.py", line 620, in placeOrder
+    self.send(*fields)
+  File "C:\Users\ktaki\TWS_AutoTrader\venv\Lib\site-packages\ib_insync\client.py", line 269, in send
+    self.sendMsg(msg.getvalue())
+  File "C:\Users\ktaki\TWS_AutoTrader\venv\Lib\site-packages\ib_insync\client.py", line 272, in sendMsg
+    loop = getLoop()
+           ^^^^^^^^^
+  File "C:\Users\ktaki\TWS_AutoTrader\venv\Lib\site-packages\ib_insync\util.py", line 464, in getLoop
+    return asyncio.get_event_loop_policy().get_event_loop()
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ktaki\AppData\Local\Programs\Python\Python312\Lib\asyncio\events.py", line 702, in get_event_loop
+    raise RuntimeError('There is no current event loop in thread %r.'
+RuntimeError: There is no current event loop in thread 'ScriptRunner.scriptThread'.
+2025-10-28 06:30:33,004 INFO orders - UVIX: ATM≈10.00 → target PUT strike≈11.5 (+15%)
+2025-10-28 06:30:33,005 INFO orders - Budget: 300,000 USD (no stop; premium-defined risk)
+2025-10-28 06:43:25,133 INFO ib - Disconnected
+2025-10-28 06:43:27,337 INFO ib - CONNECT_MODE=sync (IB.connect)
+2025-10-28 06:43:27,340 INFO ib - Connecting IB: host=127.0.0.1 port=7497 clientId=10
+2025-10-28 06:43:27,466 INFO ib - Connected (clientId=10, MDType=3)
+2025-10-28 06:43:42,514 INFO orders - [DEBUG] enter run_nugt_cc live=True budget=600000.0 stop=0.1
+2025-10-28 06:43:42,516 INFO orders - [LIVE PREVIEW] BUY LMT 6000 @ 100.15 -> STOP 90.00 (ref=100.00, TIF=DAY, outsideRth=False)
+2025-10-28 06:43:42,521 INFO orders - [PLACED] orderId=47 permId=0 parentType=LMT
+2025-10-28 06:51:04,356 INFO ib - Disconnected
+2025-10-28 06:51:05,850 INFO ib - CONNECT_MODE=sync (IB.connect)
+2025-10-28 06:51:05,852 INFO ib - Connecting IB: host=127.0.0.1 port=7497 clientId=10
+2025-10-28 06:51:05,988 INFO ib - Connected (clientId=10, MDType=3)
+2025-10-28 06:51:10,534 INFO orders - [DEBUG] enter run_nugt_cc live=True budget=600000.0 stop=0.1
+2025-10-28 06:51:10,535 INFO orders - [LIVE PREVIEW] BUY LMT 6000 @ 100.15 -> STOP 90.00 (ref=100.00, TIF=DAY, outsideRth=False)
+2025-10-28 06:51:10,537 INFO orders - [PLACED] orderId=52 permId=0 parentType=LMT
+2025-10-28 06:51:13,417 INFO orders - [DEBUG] enter run_nugt_cc live=True budget=600000.0 stop=0.1
+2025-10-28 06:51:13,417 INFO orders - [LIVE PREVIEW] BUY LMT 6000 @ 100.15 -> STOP 90.00 (ref=100.00, TIF=DAY, outsideRth=False)
+2025-10-28 06:51:13,419 INFO orders - [PLACED] orderId=55 permId=0 parentType=LMT
+2025-10-28 06:51:39,834 INFO orders - [DEBUG] run_tmf_cc live=True budget=600000.0 stop=0.07
+2025-10-28 06:51:39,836 INFO orders - [PLACED] orderId=58 permId=0 parentType=LMT
+2025-10-28 06:51:51,248 INFO orders - UVIX: ATM≈10.00 → target PUT strike≈11.5 (+15%)
+2025-10-28 06:51:51,249 INFO orders - Budget: 300,000 USD (no stop; premium-defined risk)
+2025-10-28 06:52:05,161 INFO orders - UVIX: ATM≈10.00 → target PUT strike≈11.5 (+15%)
+2025-10-28 06:52:05,161 INFO orders - Budget: 300,000 USD (no stop; premium-defined risk)
+2025-10-28 06:54:49,155 INFO ib - Disconnected
+2025-10-28 06:54:50,110 INFO ib - CONNECT_MODE=sync (IB.connect)
+2025-10-28 06:54:50,113 INFO ib - Connecting IB: host=127.0.0.1 port=7497 clientId=10
+2025-10-28 06:54:50,441 INFO ib - Connected (clientId=10, MDType=3)
+2025-10-28 06:54:52,292 INFO orders - [DEBUG] run_tmf_cc live=True budget=600000.0 stop=0.07
+2025-10-28 06:54:52,295 INFO orders - [PLACED] orderId=63 permId=0 parentType=LMT
+2025-10-28 07:17:52,567 INFO ib - Disconnected
+2025-10-28 07:37:15,649 INFO ib - CONNECT_MODE=sync (IB.connect)
+2025-10-28 07:37:15,651 INFO ib - Connecting IB: host=127.0.0.1 port=7497 clientId=10
+2025-10-28 07:37:15,777 INFO ib - Connected (clientId=10, MDType=3)
+2025-10-28 07:37:25,435 INFO orders - [DEBUG] enter run_nugt_cc live=False budget=600000.0 stop=0.1
+2025-10-28 07:37:25,435 INFO orders - [DRY RUN] STOCK LMT BUY 6000 NUGT @ 100.15
+2025-10-28 07:37:25,435 INFO orders - [DRY RUN] STOCK STP SELL 6000 NUGT @ 90.00 (ref=100.00)
+2025-10-28 07:38:02,907 INFO ib - Disconnected
+2025-10-28 07:38:05,529 INFO ib - CONNECT_MODE=sync (IB.connect)
+2025-10-28 07:38:05,533 INFO ib - Connecting IB: host=127.0.0.1 port=7497 clientId=10
+2025-10-28 07:38:05,660 INFO ib - Connected (clientId=10, MDType=3)
+2025-10-28 07:38:14,279 INFO orders - [DEBUG] enter run_nugt_cc live=True budget=600000.0 stop=0.1
+2025-10-28 07:38:14,280 INFO orders - [LIVE PREVIEW] BUY LMT 6000 @ 100.15 -> STOP 90.00 (ref=100.00, TIF=DAY, outsideRth=False)
+2025-10-28 07:38:14,281 INFO orders - [PLACED] orderId=69 permId=0 parentType=LMT
+2025-10-28 07:38:17,397 INFO orders - [DEBUG] run_tmf_cc live=True budget=600000.0 stop=0.07
+2025-10-28 07:38:17,399 INFO orders - [PLACED] orderId=72 permId=0 parentType=LMT
+2025-10-28 07:38:18,997 INFO orders - [DEBUG] run_tmf_cc live=True budget=600000.0 stop=0.07
+2025-10-28 07:38:18,999 INFO orders - [PLACED] orderId=75 permId=0 parentType=LMT
+2025-10-28 07:38:20,898 INFO orders - UVIX: ATM≈10.00 → target PUT strike≈11.5 (+15%)
+2025-10-28 07:38:20,899 INFO orders - Budget: 300,000 USD (no stop; premium-defined risk)
+2025-10-28 07:38:39,681 INFO orders - UVIX: ATM≈10.00 → target PUT strike≈11.5 (+15%)
+2025-10-28 07:38:39,681 INFO orders - Budget: 300,000 USD (no stop; premium-defined risk)
+2025-10-28 07:38:44,154 INFO orders - [DEBUG] enter run_nugt_cc live=True budget=600000.0 stop=0.1
+2025-10-28 07:38:44,157 INFO orders - [LIVE PREVIEW] BUY LMT 6000 @ 100.15 -> STOP 90.00 (ref=100.00, TIF=DAY, outsideRth=False)
+2025-10-28 07:38:44,161 INFO orders - [PLACED] orderId=80 permId=0 parentType=LMT
+2025-10-28 08:19:11,181 INFO ib - Disconnected
+2025-10-28 08:19:12,653 INFO ib - CONNECT_MODE=sync (IB.connect)
+2025-10-28 08:19:12,660 INFO ib - Connecting IB: host=127.0.0.1 port=7497 clientId=10
+2025-10-28 08:19:12,784 INFO ib - Connected (clientId=10, MDType=3)
+2025-10-28 08:19:15,234 INFO orders - [DEBUG] enter run_nugt_cc live=True budget=600000.0 stop=0.1
+2025-10-28 08:19:15,247 INFO orders - [LIVE PREVIEW] BUY LMT 6000 @ 100.15 -> STOP 90.00 (ref=100.00, TIF=DAY, outsideRth=False)
+2025-10-28 08:22:51,879 INFO ib - Disconnected
+2025-10-28 08:26:40,186 INFO ib - CONNECT_MODE=sync (IB.connect)
+2025-10-28 08:26:40,188 INFO ib - Connecting IB: host=127.0.0.1 port=7497 clientId=10
+2025-10-28 08:26:40,317 INFO ib - Connected (clientId=10, MDType=3)
+2025-10-28 08:26:56,282 INFO orders - [DEBUG] enter run_nugt_cc live=False budget=600000.0 stop=0.1
+2025-10-28 08:26:56,284 INFO orders - [DRY RUN] STOCK LMT BUY 6000 NUGT @ 100.15
+2025-10-28 08:26:56,286 INFO orders - [DRY RUN] STOCK STP SELL 6000 NUGT @ 90.00 (ref=100.00)
+2025-10-28 08:32:42,315 INFO ib - Disconnected
+2025-10-28 08:33:59,483 INFO ib - CONNECT_MODE=sync (IB.connect)
+2025-10-28 08:33:59,486 INFO ib - Connecting IB: host=127.0.0.1 port=7497 clientId=10
+2025-10-28 08:33:59,613 INFO ib - Connected (clientId=10, MDType=3)
+2025-10-28 08:34:29,247 INFO orders - [DEBUG] enter run_nugt_cc live=False budget=600000.0 stop=0.1
+2025-10-28 08:34:29,252 INFO orders - [DRY RUN] STOCK LMT BUY 6000 NUGT @ 100.15
+2025-10-28 08:34:29,252 INFO orders - [DRY RUN] STOCK STP SELL 6000 NUGT @ 90.00 (ref=100.00)
+2025-10-28 08:34:31,977 INFO orders - [DEBUG] run_tmf_cc live=False budget=600000.0 stop=0.07
+2025-10-28 08:34:51,548 INFO orders - [DEBUG] enter run_nugt_cc live=True budget=600000.0 stop=0.1
+2025-10-28 08:34:51,556 INFO orders - [LIVE PREVIEW] BUY LMT 6000 @ 100.15 -> STOP 90.00 (ref=100.00, TIF=DAY, outsideRth=False)
+2025-10-28 08:34:52,659 INFO orders - [DEBUG] run_tmf_cc live=True budget=600000.0 stop=0.07
+2025-10-28 08:36:55,297 INFO ib - Disconnected
+2025-10-28 08:36:56,539 INFO ib - CONNECT_MODE=sync (IB.connect)
+2025-10-28 08:36:56,540 INFO ib - Connecting IB: host=127.0.0.1 port=7497 clientId=10
+2025-10-28 08:36:56,659 INFO ib - Connected (clientId=10, MDType=3)
+2025-10-28 08:37:07,103 INFO orders - [DEBUG] enter run_nugt_cc live=True budget=600000.0 stop=0.1
+2025-10-28 08:37:07,110 INFO orders - [LIVE PREVIEW] BUY LMT 6000 @ 100.15 -> STOP 90.00 (ref=100.00, TIF=DAY, outsideRth=False)
+2025-10-28 08:44:22,651 INFO ib - Disconnected
+2025-10-28 08:44:26,453 INFO ib - CONNECT_MODE=sync (IB.connect)
+2025-10-28 08:44:26,455 INFO ib - Connecting IB: host=127.0.0.1 port=7497 clientId=10
+2025-10-28 08:44:26,580 INFO ib - Connected (clientId=10, MDType=3)
+2025-10-28 08:46:27,130 INFO orders - [DEBUG] (SYNC) live=True for NUGT
+2025-10-28 08:46:27,133 INFO orders - [DEBUG] enter run_nugt_cc live=True budget=600000.0 stop=0.1
+2025-10-28 08:46:27,134 INFO orders - [LIVE PREVIEW] BUY LMT 6000 @ 100.15 -> STOP 90.00 (ref=100.00, TIF=DAY, outsideRth=False)
+2025-10-28 08:46:27,138 INFO orders - [PLACED] orderId=87 permId=0 parentType=LMT
+2025-10-28 08:47:43,871 INFO orders - [DEBUG] run_tmf_cc live=True budget=600000.0 stop=0.07
+2025-10-28 08:48:02,944 INFO orders - [DEBUG] (SYNC) live=True for NUGT
+2025-10-28 08:48:02,946 INFO orders - [DEBUG] enter run_nugt_cc live=True budget=600000.0 stop=0.1
+2025-10-28 08:48:02,947 INFO orders - [LIVE PREVIEW] BUY LMT 6000 @ 100.15 -> STOP 90.00 (ref=100.00, TIF=DAY, outsideRth=False)
+2025-10-28 08:48:02,949 INFO orders - [PLACED] orderId=91 permId=0 parentType=LMT
+2025-10-28 09:26:32,007 INFO ib - CONNECT_MODE=sync (IB.connect)
+2025-10-28 09:26:32,012 INFO ib - Connecting IB: host=127.0.0.1 port=7497 clientId=10
+2025-10-28 09:26:34,050 INFO ib - Connecting IB: host=127.0.0.1 port=7497 clientId=11
+2025-10-28 09:26:36,081 INFO ib - Connecting IB: host=127.0.0.1 port=7497 clientId=12
+2025-10-28 09:26:38,137 INFO ib - Connecting IB: host=127.0.0.1 port=7497 clientId=13
+2025-10-28 09:26:40,151 INFO ib - Connecting IB: host=127.0.0.1 port=7497 clientId=14
+2025-10-28 09:26:42,202 INFO ib - Connecting IB: host=127.0.0.1 port=7497 clientId=15
+2025-10-28 09:26:44,225 INFO ib - Connecting IB: host=127.0.0.1 port=7497 clientId=16
+2025-10-28 09:26:46,251 INFO ib - Connecting IB: host=127.0.0.1 port=7497 clientId=17
+2025-10-28 09:26:48,274 INFO ib - Connecting IB: host=127.0.0.1 port=7497 clientId=18
+2025-10-28 09:26:50,326 INFO ib - Connecting IB: host=127.0.0.1 port=7497 clientId=19
+2025-10-28 09:28:32,018 INFO ib - CONNECT_MODE=sync (IB.connect)
+2025-10-28 09:28:32,025 INFO ib - Connecting IB: host=127.0.0.1 port=7497 clientId=10
+2025-10-28 09:28:33,103 INFO ib - Connected (clientId=10, MDType=3)
+2025-10-28 09:28:39,560 INFO orders - [DEBUG] enter run_nugt_cc live=False budget=600000.0 stop=0.1
+2025-10-28 09:28:39,575 INFO orders - [DRY RUN] STOCK LMT BUY 6000 NUGT @ 100.15
+2025-10-28 09:28:39,577 INFO orders - [DRY RUN] STOCK STP SELL 6000 NUGT @ 90.00 (ref=100.00)
+2025-10-28 09:31:18,100 INFO ib - Disconnected
+2025-10-28 09:31:19,493 INFO ib - CONNECT_MODE=sync (IB.connect)
+2025-10-28 09:31:19,502 INFO ib - Connecting IB: host=127.0.0.1 port=7497 clientId=10
+2025-10-28 09:31:19,655 INFO ib - Connected (clientId=10, MDType=3)
+2025-10-28 09:31:23,346 INFO orders - [DEBUG] (SYNC) live=True for NUGT
+2025-10-28 09:31:23,357 INFO orders - [DEBUG] enter run_nugt_cc live=True budget=600000.0 stop=0.1
+2025-10-28 09:31:23,361 INFO orders - [LIVE PREVIEW] BUY LMT 6000 @ 100.15 -> STOP 90.00 (ref=100.00, TIF=DAY, outsideRth=False)
+2025-10-28 09:31:23,369 INFO orders - [PLACED] orderId=97 permId=0 parentType=LMT
+2025-10-28 09:38:25,101 INFO ib - Disconnected
+2025-10-29 01:32:23,874 INFO ib - CONNECT_MODE=sync (IB.connect)
+2025-10-29 01:32:23,879 INFO ib - Connecting IB: host=127.0.0.1 port=7497 clientId=10
+2025-10-29 01:32:24,486 INFO ib - Connected (clientId=10, MDType=3)
+2025-10-29 01:32:32,812 INFO orders - [DEBUG] enter run_nugt_cc live=False budget=600000.0 stop=0.1
+2025-10-29 01:32:32,820 INFO orders - [DRY RUN] STOCK LMT BUY 6000 NUGT @ 100.15
+2025-10-29 01:32:32,821 INFO orders - [DRY RUN] STOCK STP SELL 6000 NUGT @ 90.00 (ref=100.00)
+2025-10-29 01:33:24,539 INFO orders - [DEBUG] run_tmf_cc live=False budget=600000.0 stop=0.07
+2025-10-29 01:44:05,286 INFO ib - Disconnected
+2025-10-29 01:44:06,313 INFO ib - CONNECT_MODE=sync (IB.connect)
+2025-10-29 01:44:06,316 INFO ib - Connecting IB: host=127.0.0.1 port=7497 clientId=10
+2025-10-29 01:44:06,448 INFO ib - Connected (clientId=10, MDType=3)
+2025-10-29 01:44:09,363 INFO orders - [DEBUG] enter run_nugt_cc live=False budget=600000.0 stop=0.1
+2025-10-29 01:44:09,369 INFO orders - [DRY RUN] STOCK LMT BUY 6000 NUGT @ 100.15
+2025-10-29 01:44:09,372 INFO orders - [DRY RUN] STOCK STP SELL 6000 NUGT @ 90.00 (ref=100.00)
+2025-10-29 04:00:38,620 INFO ib - Disconnected
+2025-10-29 04:00:39,794 INFO ib - CONNECT_MODE=sync (IB.connect)
+2025-10-29 04:00:39,798 INFO ib - Connecting IB: host=127.0.0.1 port=7497 clientId=10
+2025-10-29 04:00:39,947 INFO ib - Connected (clientId=10, MDType=3)
+2025-10-29 04:00:46,355 INFO orders - [DEBUG] enter run_nugt_cc live=False budget=600000.0 stop=0.1
+2025-10-29 04:00:46,358 INFO orders - [DRY RUN] STOCK LMT BUY 6000 NUGT @ 100.15
+2025-10-29 04:00:46,359 INFO orders - [DRY RUN] STOCK STP SELL 6000 NUGT @ 90.00 (ref=100.00)
+2025-10-29 13:06:17,418 INFO orders - [DRY RUN] STOCK LMT BUY 6000 NUGT @ 100.15
+2025-10-29 13:09:04,091 INFO orders - [DRY RUN] STOCK LMT BUY 6000 NUGT @ 100.15
+2025-10-29 13:09:04,091 INFO orders - [DRY RUN] STOCK STP SELL 6000 NUGT @ 90.0 (ref=100.0, pct=0.1)
+2025-10-29 13:09:04,091 WARNING orders - [PLAN] NUGT C- 不可（仕様取得失敗: name 'right' is not defined）。ATM@100.00 想定。
+2025-10-29 04:13:49,722 INFO ib - CONNECT_MODE=sync (IB.connect)
+2025-10-29 04:13:49,723 INFO ib - Connecting IB: host=127.0.0.1 port=7497 clientId=10
+2025-10-29 04:13:49,843 INFO ib - Connected (clientId=10, MDType=3)
+2025-10-29 04:13:59,251 INFO orders - [DEBUG] enter run_nugt_cc live=False budget=600000.0 stop=0.1
+2025-10-29 04:13:59,265 INFO orders - [DRY RUN] STOCK LMT BUY 6000 NUGT @ 100.15
+2025-10-29 04:13:59,267 INFO orders - [DRY RUN] STOCK STP SELL 6000 NUGT @ 90.00 (ref=100.00)
+2025-10-29 04:13:59,267 INFO orders - [DRY RUN] OPT SELL CALL 60 NUGT @100 (ATM est.)
+2025-10-29 04:14:08,035 INFO orders - [DEBUG] (SYNC) live=True for NUGT
+2025-10-29 04:14:08,038 INFO orders - [DEBUG] enter run_nugt_cc live=True budget=600000.0 stop=0.1
+2025-10-29 04:14:08,039 INFO orders - [LIVE PREVIEW] BUY LMT 6000 @ 100.15 -> STOP 90.00 (ref=100.00, TIF=DAY, outsideRth=False)
+2025-10-29 04:14:08,043 INFO orders - [PLACED] orderId=99 permId=0 parentType=LMT
+2025-10-29 04:14:08,044 INFO orders - [DEBUG] parent filled? False
+2025-10-29 04:14:08,045 INFO orders - price≈100.00, budget=600000.0, shares=6000, option_contracts=60
+2025-10-29 04:14:08,045 INFO orders - Bracket: BUY LMT 6000 @ 100.15 → STOP 90.00 | TIF=DAY outsideRth=False
+2025-10-29 04:14:08,045 INFO orders - 親の株BUYが未FillのためCCは見送りました（タイムアウト）
+2025-10-29 04:25:27,423 INFO orders - [DEBUG] (SYNC) live=True for NUGT
+2025-10-29 04:25:27,425 INFO orders - [DEBUG] enter run_nugt_cc live=True budget=600000.0 stop=0.1
+2025-10-29 04:25:27,426 INFO orders - [LIVE PREVIEW] BUY LMT 6000 @ 100.15 -> STOP 90.00 (ref=100.00, TIF=DAY, outsideRth=False)
+2025-10-29 04:25:27,429 INFO orders - [PLACED] orderId=102 permId=0 parentType=LMT
+2025-10-29 04:25:27,429 INFO orders - [DEBUG] parent filled? False
+2025-10-29 04:25:27,431 INFO orders - price≈100.00, budget=600000.0, shares=6000, option_contracts=60
+2025-10-29 04:25:27,431 INFO orders - Bracket: BUY LMT 6000 @ 100.15 → STOP 90.00 | TIF=DAY outsideRth=False
+2025-10-29 04:25:27,431 INFO orders - 親の株BUYが未FillのためCCは見送りました（タイムアウト）
+2025-10-29 04:25:33,043 INFO ib - Disconnected
