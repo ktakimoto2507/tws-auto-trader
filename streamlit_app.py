@@ -25,6 +25,20 @@ import time as pytime  # ← 追加：BGワーカー用（モジュールは pyt
 
 # --- サードパーティ ---
 import streamlit as st
+from ib_insync import Index, util, Trade
+
+# --- プロジェクト内部（★ ここへ移動） ---
+from src.ib_client import IBClient, make_etf
+from src.utils.logger import get_logger
+from src.ib.orders import (
+    StockSpec,
+    bracket_buy_with_stop,
+    decide_lmt_stop_take,
+    run_put_long,
+)
+from src.ib.options import Underlying, pick_option_contract, sell_option
+from src.config import OrderPolicy
+from src.orders.manual_order import place_manual_order
 
 # 自動再描画（community版）。無ければフォールバック定義。
 try:
@@ -35,16 +49,8 @@ except Exception:
         st.caption("（自動更新コンポーネント未導入のため手動更新）")
         st.button("Refresh status", key=f"refresh_{key or 'status'}", help="クリックで更新してください")
 
-# --- プロジェクト内部 ---
-from src.ib_client import IBClient
-from ib_insync import Index, util
-from src.ib_client import make_etf  # 既存の統一契約ユーティリティを再利用
-from src.utils.logger import get_logger
-from src.ib.orders import StockSpec, bracket_buy_with_stop, decide_lmt_stop_take
-from src.ib.options import Underlying, pick_option_contract, sell_option  # ← _underlying_price 削除
-from src.config import OrderPolicy
-from src.orders.manual_order import place_manual_order
-from ib_insync import Trade
+# ← ここで必ず一度イベントループを準備（Windowsポリシーも反映済みのはず）
+ensure_event_loop()
 
 def _wait_filled(trade: Trade, timeout_sec: float = 120.0) -> bool:
     """
@@ -151,9 +157,14 @@ def _dispatch_job(job: dict) -> list[str]:
         return run_tmf_cc(**args)
     if kind == "UVIX_PLAN":
         return run_uvix_put_idea(**args)
+    if kind == "UVIX_P_PLUS":
+        # run_put_long は orders.py で追加した「ATM Put BUY」実行関数
+        return run_put_long(**args)
     raise ValueError(f"Unknown job kind: {kind}")
 
 def _worker(job_q: queue.Queue, res: dict):
+    # ★ 追加：BGスレッドでも asyncio ループを必ず確保
+    ensure_event_loop()
     while True:
         job = job_q.get()  # {"id": "...", "kind": "...", "args": {...}}
         jid = job["id"]
@@ -769,7 +780,72 @@ with st.container(border=True):
                 st.write("•", line)
             if meta.get("status") in {"queued", "running"}:
                 st_autorefresh(interval=1500, key="poll_uvix")
+        # --- 追加：UVIX 実行（ATM Put BUY = P+） ---
+        st.divider()
+        st.markdown("**UVIX – ATM Put BUY (P\+) 実行**")
+        with st.form("form_uvix_buy", clear_on_submit=False):
+            contracts_uvix = st.number_input("Contracts (枚数)", min_value=1, step=1, value=int(os.getenv("CONTRACTS_UVIX", "20")), key="contracts_uvix_buy")
+            pct_offset_uvix = st.number_input("ATM offset (±, 例: 0 = ATM)", min_value=-0.50, max_value=0.50, value=0.00, step=0.01, format="%.2f", key="pct_offset_uvix_buy")
+            manual_price_uvix2 = st.number_input("Manual price (任意・ATM判定用)", min_value=0.0, value=manual_price_uvix, step=0.01, key="manual_price_uvix_buy")
+            use_manual_uvix2 = st.checkbox("Use manual price for ATM 判定", value=use_manual_uvix, key="use_manual_uvix_buy")
+            submit_uvix_buy = st.form_submit_button("▶ UVIX ATM Put BUY", use_container_width=True)
 
+        if submit_uvix_buy:
+            # 決定価格（ATM判定に使う）。未入力なら Price タブで採用済みを使う。
+            if use_manual_uvix2 and manual_price_uvix2 > 0:
+                price_for_atm = float(manual_price_uvix2)
+                st.session_state["manual_price:UVIX"]  = price_for_atm
+                st.session_state["decided_price:UVIX"] = price_for_atm
+            else:
+                price_for_atm = st.session_state.get("decided_price:UVIX") or st.session_state.get("price:UVIX")
+
+            if not price_for_atm:
+                st.warning("UVIXの決定価格がありません。Priceタブで取得するか手動価格を指定してください。")
+            else:
+                # LIVE = 同期実行 / DRY = BGキュー投入（他銘柄と同じ運用）
+                if is_live():
+                    with st.spinner("Placing UVIX (LIVE)…"):
+                        msgs = run_put_long(
+                            ib=get_client().ib,
+                            symbol="UVIX",
+                            contracts=int(contracts_uvix),
+                            manual_price=float(price_for_atm),
+                            pct_offset=float(pct_offset_uvix),
+                            dry_run=False,         # LIVE = 実送信
+                            oca_group=None,        # 必要ならグループ名を渡せる
+                        )
+                        for m in msgs or []:
+                            orders_log.info(m)
+                    st.success("UVIX (LIVE) 送信完了（ログ参照）")
+                else:
+                    with st.spinner("Queueing UVIX (DRY)…"):
+                        jid_buy = f"uvix-buy-{int(pytime.time())}"
+                        st.session_state.job_res[jid_buy] = {"status": "queued", "logs": [], "ts": pytime.time()}
+                        st.session_state.job_q.put({
+                            "id": jid_buy,
+                            "kind": "UVIX_P_PLUS",
+                            "args": {
+                                "ib": get_client().ib,
+                                "symbol": "UVIX",
+                                "contracts": int(contracts_uvix),
+                                "manual_price": float(price_for_atm),
+                                "pct_offset": float(pct_offset_uvix),
+                                "dry_run": True,
+                                "oca_group": None,
+                            }
+                        })
+                        st.session_state["latest_jid:UVIX_BUY"] = jid_buy
+                    st.success("UVIX (DRY) をバックグラウンドに投入しました。下の進捗をご確認ください。")
+
+        # 進捗エリア（UVIX BUY）
+        jid_ub = st.session_state.get("latest_jid:UVIX_BUY")
+        if jid_ub:
+            meta = st.session_state.job_res.get(jid_ub, {})
+            st.write(f"**Job {jid_ub}** – status: `{meta.get('status','?')}`")
+            for line in meta.get("logs", []):
+                st.write("•", line)
+            if meta.get("status") in {"queued", "running"}:
+                st_autorefresh(interval=1500, key="poll_uvix_buy")
     # Connection 表示はヘッダ/サイドバーのバッジへ集約
     st.caption("最小操作で実行できる“クイック・ポータル”。詳細は下のタブで確認/採用。")
 

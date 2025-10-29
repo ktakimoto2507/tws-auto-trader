@@ -168,3 +168,30 @@ def sell_option(
     [qopt] = ib.qualifyContracts(opt)
     trade = ib.placeOrder(qopt, o)
     return trade.order
+
+def buy_option(
+    ib: IB,
+    opt: Contract,
+    qty: float,
+    *,
+    dry_run: bool = True,
+    oca_group: Optional[str] = None,
+):
+    """P+ / C+ を想定したシンプルなマーケット買い（DRY対応）。"""
+    from ib_insync import Order
+
+    o = Order(orderType="MKT", action="BUY", totalQuantity=qty)
+    if oca_group:
+        o.ocaGroup = oca_group
+    o.transmit = not dry_run
+
+    if dry_run:
+        log.info(
+            f"[DRY RUN] OPT MKT BUY {qty} {getattr(opt, 'localSymbol', opt.symbol)} "
+            f"{getattr(opt, 'lastTradeDateOrContractMonth', '')} {getattr(opt, 'right', '')}{getattr(opt, 'strike', '')}"
+        )
+        return o
+
+    [qopt] = ib.qualifyContracts(opt)
+    trade = ib.placeOrder(qopt, o)
+    return trade.order
