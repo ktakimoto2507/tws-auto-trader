@@ -5,7 +5,7 @@ from uuid import uuid4
 
 from ib_insync import IB, Stock, Order
 from ..utils.logger import get_logger
-from .options import pick_option_contract, sell_option, Underlying
+from .options import pick_option_contract, sell_option, buy_option, Underlying
 
 log = get_logger("orders")
 
@@ -248,3 +248,47 @@ def run_covered_call(
 
     # 6) C- を SELL（DRYでも必ず1行出る）
     sell_option(ib, opt=opt, qty=qty_calls, dry_run=dry_run, oca_group=oca_group)
+
+# ============================================================
+# ★ 追加：純粋なP+（ATM Put BUYのみ）… UVIX向け
+#   ・株は一切触らない
+#   ・manual_price があればそれをATM判定に使用
+# ============================================================
+def run_put_long(
+    ib: IB,
+    *,
+    symbol: str,
+    contracts: int,                 # 何枚買うか（例: 10）
+    manual_price: float | None = None,
+    pct_offset: float = 0.0,        # ATM=0.0, 少しOTMなら +/− を調整
+    dry_run: bool = True,
+    oca_group: str | None = None,
+):
+    """
+    株は触らず、ATM（±pct_offset）のPutを買うだけ。
+    manual_price があればオプションATM決定に使用（なければ内部取得）。
+    """
+    # 1) ATM Put を選定
+    try:
+        und = Underlying(symbol=symbol, exchange="SMART", currency="USD")
+        opt, strike, expiry = pick_option_contract(
+            ib,
+            und=und,
+            right="P",
+            pct_offset=pct_offset,               # ATM中心にズラしたい場合に使用
+            override_price=(
+                float(manual_price) if manual_price is not None else None
+            ),
+        )
+    except Exception as e:
+        log.warning(f"[PLAN] {symbol} P+ 不可（仕様取得失敗: {e}）")
+        return
+
+    # 2) 枚数チェック
+    qty = int(contracts)
+    if qty <= 0:
+        log.info(f"[PLAN] {symbol} P+ スキップ（contracts={contracts}）")
+        return
+
+    # 3) P+ を BUY（DRYでも必ず1行出る）
+    buy_option(ib, opt=opt, qty=qty, dry_run=dry_run, oca_group=oca_group)
