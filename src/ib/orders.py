@@ -1,6 +1,6 @@
 from __future__ import annotations
 from dataclasses import dataclass
-from typing import Optional
+from typing import Optional, List
 from uuid import uuid4
 
 from ib_insync import IB, Stock, Order
@@ -255,40 +255,62 @@ def run_covered_call(
 #   ・manual_price があればそれをATM判定に使用
 # ============================================================
 def run_put_long(
-    ib: IB,
+    ib: IB | None = None,
     *,
-    symbol: str,
-    contracts: int,                 # 何枚買うか（例: 10）
-    manual_price: float | None = None,
+    symbol: str = "UVIX",
+    contracts: int = 1,             # 何枚買うか（例: 10）
+    manual_price: float = 0.0,
     pct_offset: float = 0.0,        # ATM=0.0, 少しOTMなら +/− を調整
     dry_run: bool = True,
     oca_group: str | None = None,
-):
+) -> List[str]:
     """
-    株は触らず、ATM（±pct_offset）のPutを買うだけ。
-    manual_price があればオプションATM決定に使用（なければ内部取得）。
+    純粋な PUT BUY（P+）。株は触らない。
+    - DRY（または ib=None）のときは IB API に触らず、計算とログだけ返す。
+    - LIVE のときのみ、オプションチェーン解決→最適PUT選定→発注を行う。
+    戻り値: ログ行のリスト
     """
-    # 1) ATM Put を選定
+    msgs: List[str] = []
+
+    # 0) 入力バリデーション（共通）
+    qty = int(contracts)
+    if qty <= 0:
+        msgs.append(f"[PLAN] {symbol} P+ スキップ（contracts={contracts}）")
+        return msgs
+
+    # 1) DRY（または ib=None）の場合：計算のみで完結（イベントループ/IB不要）
+    if dry_run or ib is None:
+        px = float(manual_price)
+        if not (px > 0):
+            raise RuntimeError("DRYモードでは manual_price が必須です（ATM判定用）")
+        # 目標ストライク（刻みは銘柄により異なるためここでは近似。実売買時に正規化される想定）
+        target = round(px * (1.0 + float(pct_offset)), 2)
+        line1 = f"[PLAN] {symbol} P+ DRY: ATM≈{px:.2f}, offset={pct_offset:+.2f} → target strike≈{target:.2f}"
+        line2 = f"[PLAN] contracts={qty}, oca_group={oca_group or '(none)'}"
+        log.info(line1)
+        log.info(line2)
+        msgs.append(line1)
+        msgs.append(line2)
+        return msgs
+
+    # 2) LIVE（ib 必須）：チェーン取得→最適PUT選定→発注
     try:
         und = Underlying(symbol=symbol, exchange="SMART", currency="USD")
         opt, strike, expiry = pick_option_contract(
             ib,
             und=und,
             right="P",
-            pct_offset=pct_offset,               # ATM中心にズラしたい場合に使用
-            override_price=(
-                float(manual_price) if manual_price is not None else None
-            ),
+            pct_offset=pct_offset,
+            override_price=(float(manual_price) if manual_price else None),
         )
     except Exception as e:
-        log.warning(f"[PLAN] {symbol} P+ 不可（仕様取得失敗: {e}）")
-        return
+        msg = f"[PLAN] {symbol} P+ 不可（仕様取得失敗: {e}）"
+        log.warning(msg)
+        msgs.append(msg)
+        return msgs
 
-    # 2) 枚数チェック
-    qty = int(contracts)
-    if qty <= 0:
-        log.info(f"[PLAN] {symbol} P+ スキップ（contracts={contracts}）")
-        return
-
-    # 3) P+ を BUY（DRYでも必ず1行出る）
-    buy_option(ib, opt=opt, qty=qty, dry_run=dry_run, oca_group=oca_group)
+    buy_option(ib, opt=opt, qty=qty, dry_run=False, oca_group=oca_group)
+    live_line = f"[LIVE] {symbol} PUT BUY {qty} @ {strike} ({expiry})"
+    log.info(live_line)
+    msgs.append(live_line)
+    return msgs

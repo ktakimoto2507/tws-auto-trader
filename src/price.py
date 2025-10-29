@@ -1,20 +1,38 @@
-from ib_insync import IB, Ticker, util
+from ib_insync import IB, Ticker, util, Stock
 from typing import Optional, Dict, Any
 from .symbols import CATALOG
 from .utils.loop import ensure_event_loop
 from datetime import datetime, date as Date
 import math
+import logging
 
+logger = logging.getLogger(__name__)
 # 直近の取得メタ情報（どのソースで値を採用したか）を保持
 _LAST_META: Dict[str, str] = {}
 
 
 def ensure_contracts(ib: IB):
     """各シンボルのContractを資格付け（qualify）"""
-    for c in CATALOG.values():
+    for sym, c in CATALOG.items():
         if not getattr(c, "conId", None):
             ib.qualifyContracts(c)
-
+        if getattr(c, "conId", None):
+            logger.info(f"[PRICE] qualified {sym}: conId={c.conId} exch={c.exchange} pe={getattr(c, 'primaryExchange', None)}")
+            continue
+        # --- フォールバック: UVIX が BATS で解決しない環境向けに CBOE を試す ---
+        if sym == "UVIX":
+            try:
+                alt = Stock("UVIX", "SMART", "USD", primaryExchange="CBOE")
+                ib.qualifyContracts(alt)
+                if getattr(alt, "conId", None):
+                    CATALOG["UVIX"] = alt  # カタログ差し替え
+                    logger.warning("[PRICE] UVIX: BATS で未解決 → CBOE で契約解決にフォールバックしました")
+                else:
+                    logger.error("[PRICE] UVIX: BATS/CBOE いずれでも契約未解決")
+            except Exception as e:
+                logger.exception(f"[PRICE] UVIX qualify fallback failed: {e}")
+        else:
+            logger.error(f"[PRICE] Contract not qualified: {sym} exch={c.exchange} pe={getattr(c, 'primaryExchange', None)}")
 
 def _ok_number(v: Any) -> bool:
     """数値で、NaN/-1.0 ではないかを判定"""
@@ -129,9 +147,16 @@ def get_prices(ib: IB, symbols: list[str], delay_type: int = 3) -> dict[str, Opt
             price = _hist_close(ib, s)
             if price is not None:
                 source = "HIST(1D close, RTH)"
-
+            else:
+                logger.warning(f"[PRICE] {s}: TOP/HIST どちらも取得できませんでした（契約/データ権限/休場を確認）")
         out[s] = price
         if source:
             _LAST_META[s] = source
 
     return out
+def probe_contracts_once(ib: IB):
+    """起動検証用：全シンボルの conId/交換所をログ出力"""
+    ensure_event_loop()
+    ensure_contracts(ib)
+    for sym, c in CATALOG.items():
+        logger.info(f"[PROBE] {sym}: conId={getattr(c,'conId',None)} exch={c.exchange} pe={getattr(c,'primaryExchange',None)}")

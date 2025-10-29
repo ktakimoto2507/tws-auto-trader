@@ -26,7 +26,11 @@ import time as pytime  # ← 追加：BGワーカー用（モジュールは pyt
 # --- サードパーティ ---
 import streamlit as st
 from ib_insync import Index, util, Trade
-
+try:
+    # Streamlitの外部スレッドでも安全に動かす（ログ/状態アクセスの警告抑止）
+    from streamlit.runtime.scriptrunner import add_script_run_ctx
+except Exception:
+    add_script_run_ctx = None
 # --- プロジェクト内部（★ ここへ移動） ---
 from src.ib_client import IBClient, make_etf
 from src.utils.logger import get_logger
@@ -167,14 +171,23 @@ def _dispatch_job(job: dict) -> list[str]:
     raise ValueError(f"Unknown job kind: {kind}")
 
 def _worker(job_q: queue.Queue, res: dict):
-    # ★ 追加：BGスレッドでも asyncio ループを必ず確保
-    ensure_event_loop()
+    # ★ BGスレッド用イベントループを明示的に生成・セット（Windowsでも安定）
+    try:
+        if sys.platform.startswith("win"):
+            try:
+                asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+            except Exception:
+                pass
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+    except Exception:
+        # フォールバック（従来の ensure_event_loop でもOK）
+        ensure_event_loop()
     while True:
         job = job_q.get()  # {"id": "...", "kind": "...", "args": {...}}
         jid = job["id"]
         res[jid] = {"status": "running", "logs": [f"started: {job.get('kind')}"], "ts": pytime.time()}
         try:
-            logs = _dispatch_job(job)
             orders_log.info(f"[WORKER] dispatch {jid} kind={job.get('kind')}")
             logs = _dispatch_job(job) or []
             logs.insert(0, f"kind={job.get('kind')}")
@@ -190,6 +203,12 @@ if not st.session_state.worker_started:
     t = threading.Thread(
         target=_worker, args=(st.session_state.job_q, st.session_state.job_res), daemon=True
     )
+    # Streamlitの実行コンテキストをワーカーに付与（警告2104系とは別件だがUI安定化）
+    if add_script_run_ctx:
+        try:
+            add_script_run_ctx(t)
+        except Exception:
+            pass
     t.start()
     st.session_state.worker_started = True
 # =====================================================================
@@ -813,27 +832,32 @@ with st.container(border=True):
                 # LIVE = 同期実行 / DRY = BGキュー投入（他銘柄と同じ運用）
                 if is_live():
                     with st.spinner("Placing UVIX (LIVE)…"):
-                        msgs = run_put_long(
-                            ib=get_client().ib,
-                            symbol="UVIX",
-                            contracts=int(contracts_uvix),
-                            manual_price=float(price_for_atm),
-                            pct_offset=float(pct_offset_uvix),
-                            dry_run=False,         # LIVE = 実送信
-                            oca_group=None,        # 必要ならグループ名を渡せる
-                        )
-                        for m in msgs or []:
-                            orders_log.info(m)
-                    st.success("UVIX (LIVE) 送信完了（ログ参照）")
+                        try:
+                            orders_log.info("[UI] UVIX BUY clicked (LIVE)")
+                            msgs = run_put_long(
+                                ib=get_client().ib,
+                                symbol="UVIX",
+                                contracts=int(contracts_uvix),
+                                manual_price=float(price_for_atm),
+                                pct_offset=float(pct_offset_uvix),
+                                dry_run=False,         # LIVE = 実送信
+                                oca_group=None,
+                            )
+                            for m in msgs or []:
+                                orders_log.info(m)
+                            st.success("UVIX (LIVE) 送信完了（Logsタブ参照）")
+                        except Exception as e:
+                            orders_log.error(f"[UI ERROR] UVIX LIVE failed: {e}")
+                            st.error(f"UVIX LIVE 実行でエラー: {e}")
                 else:
                     with st.spinner("Queueing UVIX (DRY)…"):
                         jid_buy = f"uvix-buy-{int(pytime.time())}"
                         st.session_state.job_res[jid_buy] = {"status": "queued", "logs": [], "ts": pytime.time()}
+                        # ★ DRYでは ib を渡さない（スレッド間共有を避ける）
                         st.session_state.job_q.put({
                             "id": jid_buy,
                             "kind": "UVIX_P_PLUS",
                             "args": {
-                                "ib": get_client().ib,
                                 "symbol": "UVIX",
                                 "contracts": int(contracts_uvix),
                                 "manual_price": float(price_for_atm),
