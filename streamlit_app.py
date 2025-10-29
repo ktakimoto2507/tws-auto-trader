@@ -416,6 +416,7 @@ def run_tmf_cc(budget: float, stop_pct_val: float, ref: float, live: bool = Fals
 
 
 def run_etf_buy_with_stop(symbol: str, budget: float, ref: float, live: bool = False) -> list[str]:
+    ensure_event_loop()  # ★ 追加
     """
     任意ETFを NUGTと同じロジック（親=指値, 子=逆指値(+TP)）で購入。
     ref: 決定価格（手動またはPriceタブ採用価格）
