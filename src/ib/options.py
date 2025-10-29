@@ -13,6 +13,13 @@ log = get_logger("options")
 
 Right = Literal["C", "P"]
 
+def _fmt_opt_label(opt: Option) -> str:
+    """ログ用の読みやすい表記に整形"""
+    sym = getattr(opt, "symbol", "")
+    yyyymmdd = getattr(opt, "lastTradeDateOrContractMonth", "")
+    right = getattr(opt, "right", "")
+    strike = getattr(opt, "strike", "")
+    return f"{sym} {yyyymmdd} {strike}{right}"
 
 @dataclass(frozen=True)
 class Underlying:
@@ -145,16 +152,16 @@ def sell_option(
 ):
     from ib_insync import Order
 
+    # 価格が取れないケースを避けるため、実売は MKT のまま（DRYでは行だけ出す）
     o = Order(orderType="MKT", action="SELL", totalQuantity=qty)
     if oca_group:
         o.ocaGroup = oca_group
     o.transmit = not dry_run
 
     if dry_run:
-        log.info(
-            f"[DRY RUN] OPT SELL {qty} {getattr(opt, 'localSymbol', opt.symbol)} "
-            f"{getattr(opt, 'lastTradeDateOrContractMonth', '')} {getattr(opt, 'right', '')}{getattr(opt, 'strike', '')}"
-        )
+        # ログは必ず1行で “銘柄 満期 ストライク権利” を出す
+        label = _fmt_opt_label(opt) if isinstance(opt, Option) else getattr(opt, "localSymbol", "")
+        log.info(f"[DRY RUN] OPT MKT SELL {qty} {label}")
         return o
 
     # オプション契約は qualify してから発注が安全
