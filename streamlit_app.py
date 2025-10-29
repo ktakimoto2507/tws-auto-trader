@@ -17,11 +17,23 @@ import os
 import math
 import logging
 from pathlib import Path
-from datetime import datetime, timedelta, time
+from datetime import datetime, timedelta, time as dt_time
 from zoneinfo import ZoneInfo
+import threading
+import queue
+import time as pytime  # ← 追加：BGワーカー用（モジュールは pytime に）
 
 # --- サードパーティ ---
 import streamlit as st
+
+# 自動再描画（community版）。無ければフォールバック定義。
+try:
+    from streamlit_extras.st_autorefresh import st_autorefresh
+except Exception:
+    def st_autorefresh(interval: int = 1500, key: str | None = None):
+        # 依存が無い場合は“手動更新ボタン”に置換
+        st.caption("（自動更新コンポーネント未導入のため手動更新）")
+        st.button("Refresh status", key=f"refresh_{key or 'status'}", help="クリックで更新してください")
 
 # --- プロジェクト内部 ---
 from src.ib_client import IBClient
@@ -32,7 +44,25 @@ from src.ib.orders import StockSpec, bracket_buy_with_stop, decide_lmt_stop_take
 from src.ib.options import Underlying, pick_option_contract, sell_option  # ← _underlying_price 削除
 from src.config import OrderPolicy
 from src.orders.manual_order import place_manual_order
+from ib_insync import Trade
 
+def _wait_filled(trade: Trade, timeout_sec: float = 120.0) -> bool:
+    """
+    親注文のFill待ち。True=Filled, False=タイムアウト/キャンセル。
+    """
+    try:
+        start = pytime.time()
+        while pytime.time() - start < timeout_sec:
+            s = (trade.orderStatus.status or "").lower()
+            if s == "filled":
+                return True
+            if s in {"cancelled", "inactive", "api cancelled"}:
+                return False
+            util.run(trade.ib.sleep(0.5))
+        return False
+    except Exception:
+        return False
+    
 def _resolve_last_then_close(t) -> float | None:
     """TWSウォッチリストの『直近』風: last があればそれ、無ければ close。"""
     for v in (getattr(t, "last", None), getattr(t, "close", None)):
@@ -98,9 +128,52 @@ if not orders_log.handlers:
     orders_log.addHandler(_h)
     orders_log.setLevel(logging.INFO)
 
-
 log = get_logger("st")
 POL = OrderPolicy()  # 発注ポリシーをここで固定（UIはLiveの可否のみ））
+
+# === BG Worker: 非同期発注ジョブ基盤 ==================================
+# セッション状態の初期化
+if "job_q" not in st.session_state:
+    st.session_state.job_q = queue.Queue()
+if "job_res" not in st.session_state:
+    # job_id -> {"status": "queued|running|done|error", "logs": [..], "ts": epoch}
+    st.session_state.job_res = {}
+if "worker_started" not in st.session_state:
+    st.session_state.worker_started = False
+
+def _dispatch_job(job: dict) -> list[str]:
+    """ジョブ種別に応じて既存の同期関数を呼び出す"""
+    kind = job.get("kind")
+    args = job.get("args", {})
+    if kind == "NUGT_CC":
+        return run_nugt_cc(**args)
+    if kind == "TMF_CC":
+        return run_tmf_cc(**args)
+    if kind == "UVIX_PLAN":
+        return run_uvix_put_idea(**args)
+    raise ValueError(f"Unknown job kind: {kind}")
+
+def _worker(job_q: queue.Queue, res: dict):
+    while True:
+        job = job_q.get()  # {"id": "...", "kind": "...", "args": {...}}
+        jid = job["id"]
+        res[jid] = {"status": "running", "logs": ["started"], "ts": pytime.time()}
+        try:
+            logs = _dispatch_job(job)
+            res[jid] = {"status": "done", "logs": logs, "ts": pytime.time()}
+        except Exception as e:
+            res[jid] = {"status": "error", "logs": [f"{type(e).__name__}: {e}"], "ts": pytime.time()}
+        finally:
+            job_q.task_done()
+
+# 初回だけデーモンスレッドを起動
+if not st.session_state.worker_started:
+    t = threading.Thread(
+        target=_worker, args=(st.session_state.job_q, st.session_state.job_res), daemon=True
+    )
+    t.start()
+    st.session_state.worker_started = True
+# =====================================================================
 
 # 3) IBクライアント（接続）のセッション再利用
 def get_client() -> IBClient | None:
@@ -175,12 +248,17 @@ def run_nugt_cc(budget: float, stop_pct_val: float = 0.06, ref: float | None = N
         stop_pct=float(stop_pct_val),          # ← ここを“指定値優先”に変更（10%を通せる）
         take_profit_pct=POL.take_profit_pct,
     )
-    # --- ここで DRY/LIVE を問わず、**LMTベース**のプレビューを出す ---
+    # --- DRY はここで完結（IB不要） ---
     if not live:
         orders_log.info(f"[DRY RUN] STOCK LMT BUY {qty_shares} NUGT @ {lmt_price:.2f}")
         orders_log.info(f"[DRY RUN] STOCK STP SELL {qty_shares} NUGT @ {stop_price:.2f} (ref={px:.2f})")
         if take_profit is not None:
             orders_log.info(f"[DRY RUN] STOCK LMT SELL(TP) {qty_shares} NUGT @ {take_profit:.2f}")
+        # C-（推定）：NUGTは 1.0 刻みを想定し ATM へ四捨五入
+        est_strike = round(px)  # 例: 100.15 → 100
+        orders_log.info(f"[DRY RUN] OPT SELL CALL {qty_contracts} NUGT @{est_strike} (ATM est.)")
+        msgs.append(f"Option (est.): CALL {est_strike} x {qty_contracts} (SELL, DRY)")
+        return msgs
     else:
         orders_log.info(
             f"[LIVE PREVIEW] BUY LMT {qty_shares} @ {lmt_price:.2f} -> "
@@ -216,12 +294,26 @@ def run_nugt_cc(budget: float, stop_pct_val: float = 0.06, ref: float | None = N
         + f" | TIF={POL.tif} outsideRth={POL.outside_rth}"
     )
 
-    # 3) ATM CALL SELL（DRY）
+    # 3) Covered Call（親Fill後にSELLする／DRYは即ログ＋仮送信）
     if qty_contracts >= 1:
-        opt, strike, expiry = pick_option_contract(cli.ib, und, right="C", pct_offset=0.0,
-                                                   prefer_friday=True, override_price=px)
-        sell_option(cli.ib, opt, qty_contracts, dry_run=not live)
-        msgs.append(f"Option: CALL {strike} @ {expiry} x {qty_contracts} (SELL)")
+        try:
+            if live and parent_trade is not None:
+                filled = _wait_filled(parent_trade, timeout_sec=180.0)
+                orders_log.info(f"[DEBUG] parent filled? {filled}")
+                if not filled:
+                    msgs.append("親の株BUYが未FillのためCCは見送りました（タイムアウト）")
+                    return msgs
+            opt, strike, expiry = pick_option_contract(
+                cli.ib, und, right="C", pct_offset=0.0, prefer_friday=True, override_price=px
+            )
+
+            sell_option(cli.ib, opt, qty_contracts, dry_run=not live)
+            msgs.append(f"Option: CALL {strike} @ {expiry} x {qty_contracts} (SELL)")
+            orders_log.info(f"[CC] SELL CALL {qty_contracts} {und.symbol} {strike} {expiry} (price=LMT@Bid)")
+
+        except Exception as e:
+            msgs.append(f"Option SELL failed: {e}")
+            orders_log.error(f"[CC ERROR] {type(e).__name__}: {e}")
     else:
         msgs.append("株数が100未満のためオプション売りはスキップ")
 
@@ -293,19 +385,30 @@ def run_tmf_cc(budget: float, stop_pct_val: float, ref: float, live: bool = Fals
         f" | TIF={POL.tif} outsideRth={POL.outside_rth}"
     ]
 
-    # ATM “5刻み切り上げ” ルール（例: 124.7→125, 132.5→135）
-    # ここでは“方針と対象ストライク”を明確にログ出し（実際のコン約定は pick_option_contract の結果に従う）
+    # Covered Call（親Fill後にSELL）＋ “5刻み切り上げ”方針ログ
     if qty_contracts >= 1:
-        # 5刻みに切り上げ
-        rounded = math.ceil(px / 5.0) * 5.0
-        # 現行ヘルパーの都合で "ATM選好" で取得し、ストライク乖離はログに明示
-        opt, strike, expiry = pick_option_contract(cli.ib, und, right="C", pct_offset=0.0,
-                                                   prefer_friday=True, override_price=px)
-        if float(strike) != float(rounded):
-            orders_log.info(f"[NOTICE] TMF CC strike policy: ceil_to_5={rounded:.0f}, picked={strike} (helper制約でATM優先)")
-        # 売り発注（DRY/LIVE）
-        sell_option(cli.ib, opt, qty_contracts, dry_run=not live)
-        msgs.append(f"Option: CALL target≈{rounded:.0f} (picked {strike}) @ {expiry} x {qty_contracts} (SELL)")
+        try:
+            if live and parent_trade is not None:
+                filled = _wait_filled(parent_trade, timeout_sec=180.0)
+                orders_log.info(f"[DEBUG] parent filled? {filled}")
+                if not filled:
+                    msgs.append("親の株BUYが未FillのためCCは見送りました（タイムアウト）")
+                    return msgs
+            rounded = math.ceil(px / 5.0) * 5.0
+            opt, strike, expiry = pick_option_contract(
+                cli.ib, und, right="C", pct_offset=0.0, prefer_friday=True, override_price=px
+            )
+            if float(strike) != float(rounded):
+                orders_log.info(f"[NOTICE] TMF CC policy: ceil_to_5={rounded:.0f}, picked={strike}")
+            if not live:
+                orders_log.info(f"[DRY RUN] OPT SELL CALL {qty_contracts} {und.symbol} @{strike} {expiry} (target≈{rounded:.0f})")
+            sell_option(cli.ib, opt, qty_contracts, dry_run=not live)
+            msgs.append(f"Option: CALL target≈{rounded:.0f} (picked {strike}) @ {expiry} x {qty_contracts} (SELL)")
+            if live:
+                orders_log.info(f"[CC] SELL CALL {qty_contracts} {und.symbol} {strike} {expiry}")
+        except Exception as e:
+            msgs.append(f"Option SELL failed: {e}")
+            orders_log.error(f"[CC ERROR] {type(e).__name__}: {e}")
     else:
         msgs.append("株数が100未満のためオプション売りはスキップ")
 
@@ -381,7 +484,7 @@ def next_weekly_times(ny_hour: int = 9, ny_minute: int = 35, weeks: int = 6):
     tz_local = ZoneInfo(os.getenv("TZ", "Asia/Tokyo"))
     now = datetime.now(tz_ny)
     days_ahead = (4 - now.weekday()) % 7  # Fri=4
-    base = datetime.combine((now + timedelta(days=days_ahead)).date(), time(ny_hour, ny_minute), tz_ny)
+    base = datetime.combine((now + timedelta(days=days_ahead)).date(), dt_time(ny_hour, ny_minute), tz_ny)
     if base < now:
         base += timedelta(days=7)
     return [(base + timedelta(weeks=i), (base + timedelta(weeks=i)).astimezone(tz_local)) for i in range(weeks)]
@@ -408,7 +511,21 @@ def run_uvix_put_idea(budget: float, ref: float) -> list[str]:
 
 # 5) UI
 st.set_page_config(page_title="IB TWS – AutoTrader", layout="wide")
-st.title("IB TWS – AutoTrader (Dashboard)")
+# --- ヘッダ：タイトル + 右上に接続バッジ ---
+colH1, colH2 = st.columns([1, 0.22])
+with colH1:
+    st.title("IB TWS – AutoTrader (Dashboard)")
+with colH2:
+    cli_badge = st.session_state.get("ib_client")
+    is_conn = bool(cli_badge and cli_badge.ib and cli_badge.ib.isConnected())
+    st.markdown(
+        f"<div style='text-align:right;padding-top:14px'>"
+        f"<span style='display:inline-block;padding:4px 10px;border-radius:999px;"
+        f"background:{'#e8fff1' if is_conn else '#f3f4f6'};color:{'#067647' if is_conn else '#374151'};"
+        f"font-weight:600;font-size:12px;'>"
+        f"{'● Connected' if is_conn else '○ Disconnected'}</span></div>",
+        unsafe_allow_html=True
+    )
 
 # Sidebar
 st.sidebar.header("Settings")
@@ -426,25 +543,30 @@ md_type = st.sidebar.selectbox("Market Data Type", [1,2,3,4], index=2)
 
 colA, colB = st.sidebar.columns(2)
 if colA.button("Connect"):
-    cfg = type("Tmp", (), {"host": host, "port": int(port), "client_id": int(client_id), "account": None})
-    cli = IBClient(cfg)  # 簡易cfg
-    try:
-        ensure_event_loop()                           # ← 追加
-        cli.connect(market_data_type=int(md_type))
-        st.session_state["ib_client"] = cli
-        # --- 環境バナー＆口座検証（ここなら cli が存在） ---
-        env = os.getenv("RUN_MODE", "paper")
-        accts = cli.ib.managedAccounts() or []
-        acct_hint = ", ".join(accts) if accts else "(unknown)"
-        is_paper = any(a.startswith("DU") for a in accts)  # IBKR: Paper=DUxxxxx
-        st.success(f"Connected – Accounts: {acct_hint} | RUN_MODE={env}")
-        if env == "live" and is_paper:
-            st.warning("RUN_MODE=live ですが Paper 口座に接続しています。PORT/ログイン/PORT番号を再確認してください。")
-        if env == "paper" and not is_paper:
-            st.warning("RUN_MODE=paper ですが Live 口座に接続しています。PORT/ログイン/PORT番号を再確認してください。")
+    # 既存接続の再利用/二重connect防止
+    curr = get_client()
+    if curr and curr.ib and curr.ib.isConnected():
+        st.info("すでに接続済みです。")
+    else:
+        cfg = type("Tmp", (), {"host": host, "port": int(port), "client_id": int(client_id), "account": None})
+        cli = IBClient(cfg)
+        try:
+            ensure_event_loop()                           # ← 追加
+            cli.connect(market_data_type=int(md_type))
+            st.session_state["ib_client"] = cli
+            # --- 環境バナー＆口座検証（ここなら cli が存在） ---
+            env = os.getenv("RUN_MODE", "paper")
+            accts = cli.ib.managedAccounts() or []
+            acct_hint = ", ".join(accts) if accts else "(unknown)"
+            is_paper = any(a.startswith("DU") for a in accts)  # IBKR: Paper=DUxxxxx
+            st.success(f"Connected – Accounts: {acct_hint} | RUN_MODE={env}")
+            if env == "live" and is_paper:
+                st.warning("RUN_MODE=live ですが Paper 口座に接続しています。PORT/ログイン/PORT番号を再確認してください。")
+            if env == "paper" and not is_paper:
+                st.warning("RUN_MODE=paper ですが Live 口座に接続しています。PORT/ログイン/PORT番号を再確認してください。")
 
-    except Exception as e:
-        st.error(f"Connect failed: {e}")
+        except Exception as e:
+            st.error(f"Connect failed: {e}")
 
 if colB.button("Disconnect"):
     cli = get_client()
@@ -463,6 +585,17 @@ st.session_state["live_orders"] = bool(live_toggle)
 if live_toggle:
     st.sidebar.warning("LIVE モードです。注文は実際に送信されます。")
 
+# 接続バッジ（サイドバーミニ）
+cli_sb = get_client()
+conn_sb = bool(cli_sb and cli_sb.ib and cli_sb.ib.isConnected())
+st.sidebar.markdown(
+    f"<div style='margin-top:6px'>"
+    f"<span style='display:inline-block;padding:2px 8px;border-radius:999px;"
+    f"background:{'#e8fff1' if conn_sb else '#f3f4f6'};color:{'#067647' if conn_sb else '#374151'};"
+    f"font-weight:600;font-size:11px;'>"
+    f"{'● Connected' if conn_sb else '○ Disconnected'}</span></div>",
+    unsafe_allow_html=True
+)
 
 st.sidebar.markdown("### Upcoming (NY time → Local)")
 for ny, local in next_weekly_times():
@@ -471,7 +604,7 @@ for ny, local in next_weekly_times():
 # --- Quick Portal（メイン） ---
 with st.container(border=True):
     st.subheader("Quick Portal")
-    c1, c2, c3, c4 = st.columns([1,1,1,2])
+    c1, c2, c3 = st.columns([1,1,1])
 
     # ===== NUGT =====
     with c1:
@@ -484,30 +617,57 @@ with st.container(border=True):
             submit_nugt = st.form_submit_button("▶ NUGT CoveredCall", use_container_width=True)
 
         if submit_nugt:
-            try:
-                # 決定価格の解決
-                if use_manual_nugt and manual_price_nugt > 0:
-                    price = float(manual_price_nugt)
-                    st.session_state["manual_price:NUGT"]  = price
-                    st.session_state["decided_price:NUGT"] = price
+            # 決定価格の解決（未設定なら警告して何もしない）
+            if use_manual_nugt and manual_price_nugt > 0:
+                price = float(manual_price_nugt)
+                st.session_state["manual_price:NUGT"]  = price
+                st.session_state["decided_price:NUGT"] = price
+            else:
+                price = st.session_state.get("decided_price:NUGT") or st.session_state.get("price:NUGT")
+            if not price:
+                st.warning("NUGTの決定価格がありません。Priceタブで取得し、または Use manual price をONにして手動価格を入力してください。")
+            else:
+                if is_live():
+                    # ★ LIVEは同期実行：TWSに確実に注文送信（UIは数秒ブロック）
+                    with st.spinner("Placing NUGT (LIVE)…"):
+                        orders_log.info("[DEBUG] (SYNC) live=True for NUGT")
+                        msgs = run_nugt_cc(
+                            budget=float(budget_nugt),
+                            stop_pct_val=float(stop_nugt),
+                            ref=float(price),
+                            live=True,
+                        )
+                        for m in msgs:
+                            orders_log.info(m)
+                    st.success("NUGT (LIVE) 送信完了（ログ参照）")
                 else:
-                    price = st.session_state.get("decided_price:NUGT") or st.session_state.get("price:NUGT")
-                if not price:
-                    st.warning("NUGTの決定価格がありません。Priceタブで取得し、または Use manual price をONにして手動価格を入力してください。")
-                else:
-                    ensure_event_loop()  # 念のため
-                    msgs = run_nugt_cc(
-                        float(budget_nugt),
-                        float(stop_nugt),
-                        float(price),
-                        is_live(), 
-                    )
-                    for m in msgs:
-                        orders_log.info(m)
-                    st.success("NUGT CC 完了（ログ参照）")
-            except Exception as e:
-                st.error(f"NUGT 実行エラー: {e}")
+                    # ★ DRYはBGキュー：UIを止めない
+                    with st.spinner("Queueing NUGT (DRY)…"):
+                        jid = f"nugt-{int(pytime.time())}"
+                        st.session_state.job_res[jid] = {"status": "queued", "logs": [], "ts": pytime.time()}
+                        st.session_state.job_q.put({
+                            "id": jid,
+                            "kind": "NUGT_CC",
+                            "args": {
+                                "budget": float(budget_nugt),
+                                "stop_pct_val": float(stop_nugt),
+                                "ref": float(price),
+                                "live": False,
+                            }
+                        })
+                        st.session_state["latest_jid:NUGT"] = jid
+                    st.success("NUGT (DRY) をバックグラウンドに投入しました。下の進捗をご確認ください。")
 
+
+        # 進捗エリア（NUGT）
+        jid_n = st.session_state.get("latest_jid:NUGT")
+        if jid_n:
+            meta = st.session_state.job_res.get(jid_n, {})
+            st.write(f"**Job {jid_n}** – status: `{meta.get('status','?')}`")
+            for line in meta.get("logs", []):
+                st.write("•", line)
+            if meta.get("status") in {"queued", "running"}:
+                st_autorefresh(interval=1500, key="poll_nugt")
         st.caption("DRY RUN: 予算いっぱい現物→取得価格の6%下にSTP→ATMコール売り。manual_priceがあればそれを使用。無ければスナップショット価格を取得。")
 
     # ===== TMF =====
@@ -521,28 +681,55 @@ with st.container(border=True):
             submit_tmf = st.form_submit_button("▶ TMF CoveredCall", use_container_width=True)
 
         if submit_tmf:
-            try:
-                if use_manual_tmf and manual_price_tmf > 0:
-                    price = float(manual_price_tmf)
-                    st.session_state["manual_price:TMF"]  = price
-                    st.session_state["decided_price:TMF"] = price
+            if use_manual_tmf and manual_price_tmf > 0:
+                price = float(manual_price_tmf)
+                st.session_state["manual_price:TMF"]  = price
+                st.session_state["decided_price:TMF"] = price
+            else:
+                price = st.session_state.get("decided_price:TMF") or st.session_state.get("price:TMF")
+            if not price:
+                st.warning("TMFの決定価格がありません。Priceタブで取得するか手動価格を使用してください。")
+            else:
+                if is_live():
+                    # ★ LIVEは同期実行
+                    with st.spinner("Placing TMF (LIVE)…"):
+                        orders_log.info("[DEBUG] (SYNC) live=True for TMF")
+                        msgs = run_tmf_cc(
+                            budget=float(budget_tmf),
+                            stop_pct_val=float(stop_tmf),
+                            ref=float(price),
+                            live=True,
+                        )
+                        for m in msgs:
+                            orders_log.info(m)
+                    st.success("TMF (LIVE) 送信完了（ログ参照）")
                 else:
-                    price = st.session_state.get("decided_price:TMF") or st.session_state.get("price:TMF")
-                if not price:
-                    st.warning("TMFの決定価格がありません。Priceタブで取得するか手動価格を使用してください。")
-                else:
-                    ensure_event_loop()
-                    msgs = run_tmf_cc(
-                        float(budget_tmf),
-                        float(stop_tmf),
-                        float(price),
-                        is_live(), 
-                    )
-                    for m in msgs:
-                        orders_log.info(m)
-                    st.success("TMF CC 完了（ログ参照）")
-            except Exception as e:
-                st.error(f"TMF 実行エラー: {e}")
+                    # ★ DRYはBGキュー
+                    with st.spinner("Queueing TMF (DRY)…"):
+                        jid = f"tmf-{int(pytime.time())}"  # ← ここ、uvix→tmf に修正
+                        st.session_state.job_res[jid] = {"status": "queued", "logs": [], "ts": pytime.time()}
+                        st.session_state.job_q.put({
+                            "id": jid,
+                            "kind": "TMF_CC",
+                            "args": {
+                                "budget": float(budget_tmf),
+                                "stop_pct_val": float(stop_tmf),
+                                "ref": float(price),
+                                "live": False,
+                            }
+                        })
+                        st.session_state["latest_jid:TMF"] = jid
+                    st.success("TMF (DRY) をバックグラウンドに投入しました。下の進捗をご確認ください。")
+
+        # 進捗エリア（TMF）
+        jid_t = st.session_state.get("latest_jid:TMF")
+        if jid_t:
+            meta = st.session_state.job_res.get(jid_t, {})
+            st.write(f"**Job {jid_t}** – status: `{meta.get('status','?')}`")
+            for line in meta.get("logs", []):
+                st.write("•", line)
+            if meta.get("status") in {"queued", "running"}:
+                st_autorefresh(interval=1500, key="poll_tmf")
 
     # ===== UVIX =====
     with c3:
@@ -554,29 +741,36 @@ with st.container(border=True):
             submit_uvix_plan = st.form_submit_button("▶ UVIX +15% PUT (Plan)", use_container_width=True)
 
         if submit_uvix_plan:
-            try:
-                if use_manual_uvix and manual_price_uvix > 0:
-                    price = float(manual_price_uvix)
-                    st.session_state["manual_price:UVIX"]  = price
-                    st.session_state["decided_price:UVIX"] = price
-                else:
-                    price = st.session_state.get("decided_price:UVIX") or st.session_state.get("price:UVIX")
-                if not price:
-                    st.warning("UVIXの決定価格がありません。Priceタブで取得するか手動価格を使用してください。")
-                else:
-                    msgs = run_uvix_put_idea(float(budget_uvix), float(price))
-                    for m in msgs:
-                        orders_log.info(m)
-                    st.info("UVIX PUT 設計をログに出力しました（次段で発注ヘルパを追加）")
-            except Exception as e:
-                st.error(f"UVIX 計算エラー: {e}")
+            if use_manual_uvix and manual_price_uvix > 0:
+                price = float(manual_price_uvix)
+                st.session_state["manual_price:UVIX"]  = price
+                st.session_state["decided_price:UVIX"] = price
+            else:
+                price = st.session_state.get("decided_price:UVIX") or st.session_state.get("price:UVIX")
+            if not price:
+                st.warning("UVIXの決定価格がありません。Priceタブで取得するか手動価格を使用してください。")
+            else:
+                with st.spinner("Queueing UVIX plan…"):
+                    jid = f"uvix-{int(pytime.time())}"
+                    st.session_state.job_res[jid] = {"status": "queued", "logs": [], "ts": pytime.time()}
+                    st.session_state.job_q.put({
+                        "id": jid,
+                        "kind": "UVIX_PLAN",
+                        "args": {"budget": float(budget_uvix), "ref": float(price)}
+                    })
+                    st.session_state["latest_jid:UVIX"] = jid
+                st.info("UVIX PUT 設計をバックグラウンドに投入しました。")
+        jid_u = st.session_state.get("latest_jid:UVIX")
+        if jid_u:
+            meta = st.session_state.job_res.get(jid_u, {})
+            st.write(f"**Job {jid_u}** – status: `{meta.get('status','?')}`")
+            for line in meta.get("logs", []):
+                st.write("•", line)
+            if meta.get("status") in {"queued", "running"}:
+                st_autorefresh(interval=1500, key="poll_uvix")
 
-    # ===== Connection =====
-    with c4:
-        cli_tmp = get_client()
-        conn = bool(cli_tmp and cli_tmp.ib and cli_tmp.ib.isConnected())
-        st.metric("Connection", "Connected" if conn else "Disconnected")
-        st.caption("最小操作で実行できる“クイック・ポータル”。詳細は下のタブで確認/採用。")
+    # Connection 表示はヘッダ/サイドバーのバッジへ集約
+    st.caption("最小操作で実行できる“クイック・ポータル”。詳細は下のタブで確認/採用。")
 
 
 # Logs の表示可否（サイドバーから操作したいならここをサイドバーにしてOK）

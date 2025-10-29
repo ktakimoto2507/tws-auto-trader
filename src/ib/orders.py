@@ -5,6 +5,7 @@ from uuid import uuid4
 
 from ib_insync import IB, Stock, Order
 from ..utils.logger import get_logger
+from .options import pick_option_contract, sell_option, Underlying
 
 log = get_logger("orders")
 
@@ -178,3 +179,72 @@ def decide_lmt_stop_take(
     stp = round(reference_price * (1 - stop_pct), 2)
     tpf = None if take_profit_pct is None else round(reference_price * (1 + take_profit_pct), 2)
     return lmt, stp, tpf
+
+# ============================================================
+# ★ 追加：Covered Call（株+STOP+Call売り）本体（DRY可視性重視）
+# ============================================================
+
+def run_covered_call(
+    ib: IB,
+    *,
+    symbol: str,
+    budget_usd: float,
+    stop_pct_value: float,
+    manual_price: float | None = None,   # UIの「Use manual price」をそのまま渡す
+    entry_slippage_bps: int = 15,        # 指値は ref*(1+bps/10000)
+    dry_run: bool = True,
+    oca_group: str | None = None,
+):
+    """
+    株BUY(LMT) → STOP(SELL) → C-（ATM）を必ず評価し、DRYでも行を出す。
+    - manual_price があればそれを基準として数量・C-のATM決定に使用
+    - 市場価格の取得は呼び出し側で済んでいる前提でも、manualがあればそれを最優先
+    """
+    # 1) 参照価格を決定
+    ref = manual_price
+    if ref is None:
+        log.warning(f"[PLAN] {symbol} manual_price 未指定。UI側のスナップショット価格を渡すとより安定します。")
+        # manual無しでも動くように、最低限ログだけ残して終了（価格取得は他レイヤで実施想定）
+        # 価格が無いと数量算出できないため、ここで止める
+        return
+
+    # 2) 株数量（最低100株未満ならC-不可を明示）
+    if ref <= 0:
+        log.warning(f"[PLAN] {symbol} 参照価格が不正: {ref}")
+        return
+    qty_shares = int(budget_usd // ref)
+    if qty_shares <= 0:
+        log.info(f"[PLAN] {symbol} 予算不足（budget={budget_usd}, ref={ref:.2f}）")
+        return
+
+    # 3) 指値・ストップを決定し、BUY(LMT) → STP(SELL) を出す（DRYはログのみ）
+    lmt_price, stop_price, _ = decide_lmt_stop_take(
+        reference_price=ref,
+        slippage_bps=entry_slippage_bps,
+        stop_pct=stop_pct_value
+    )
+    limit_(ib, StockSpec(symbol), action="BUY", qty=qty_shares, lmt_price=lmt_price, dry_run=dry_run, oca_group=oca_group)
+    stop_pct(ib, StockSpec(symbol), qty=qty_shares, reference_price=ref, pct=stop_pct_value, dry_run=dry_run, oca_group=oca_group)
+
+    # 4) C- 数量（100株ごとに1枚）
+    qty_calls = qty_shares // 100
+    if qty_calls <= 0:
+        log.info(f"[PLAN] {symbol} C- スキップ（shares={qty_shares} < 100）")
+        return
+
+    # 5) ATMコールの選定（manual_priceを ref として強制使用）
+    try:
+        und = Underlying(symbol=symbol, exchange="SMART", currency="USD")
+        opt, strike, expiry = pick_option_contract(
+            ib,
+            und=und,
+            right="C",
+            pct_offset=0.0,              # ATM
+            override_price=float(ref),   # ← manual_price を必ず反映
+        )
+    except Exception as e:
+        log.warning(f"[PLAN] {symbol} C- 不可（仕様取得失敗: {e}）。ATM@{ref:.2f} 想定。")
+        return
+
+    # 6) C- を SELL（DRYでも必ず1行出る）
+    sell_option(ib, opt=opt, qty=qty_calls, dry_run=dry_run, oca_group=oca_group)

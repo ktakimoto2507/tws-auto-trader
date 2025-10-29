@@ -174,4 +174,33 @@ class IBClient:
         px, t = wait_price(self.ib, qc, timeout=timeout)
         return px, t, qc
 
-
+    # ============================================================
+    # ★ 追加：並列ジョブ用の軽量接続（各タスクで独立 IB を使う）
+    # ============================================================
+    def connect_for_job(self, *, market_data_type: int = 3, timeout: float = 10.0) -> IB:
+        """
+        バックグラウンド/並列ジョブ用に **新しい IB インスタンス**を返す。
+        呼び出し側で `with` や try/finally で `disconnect()` して使うこと。
+        """
+        job_ib = IB()
+        base = int(self.cfg.client_id)
+        last_err: Exception | None = None
+        # 衝突を避けるため、+100 から順に試す
+        for bump in range(20):
+            cid = base + 100 + bump
+            try:
+                ok = job_ib.connect(self.cfg.host, int(self.cfg.port), clientId=cid, timeout=timeout, readonly=False)
+                if ok and job_ib.isConnected():
+                    try:
+                        job_ib.reqMarketDataType(market_data_type)
+                    except Exception:
+                        pass
+                    log.info(f"[job-ib] connected (clientId={cid}, MDType={market_data_type})")
+                    return job_ib
+            except Exception as e:
+                last_err = e
+            try:
+                job_ib.disconnect()
+            except Exception:
+                pass
+        raise RuntimeError("Failed to create job IB connection") from last_err
