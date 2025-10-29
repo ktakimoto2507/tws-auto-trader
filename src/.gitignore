@@ -2,3 +2,29 @@
 strategies/
 
 *.yaml
+
+# --- Python build / cache ---
+__pycache__/
+*.py[cod]
+*.pyo
+
+# --- Virtual environments ---
+.venv/
+venv/
+env/
+ENV/
+
+# --- Environment files ---
+.env
+
+# --- Logs & temp files ---
+logs/
+*.log
+
+# --- Tests & pytest ---
+pytest.ini
+tests/
+
+# --- Jupyter, Streamlit cache ---
+.ipynb_checkpoints/
+.streamlit/
