@@ -25,24 +25,36 @@ import time as pytime  # ← 追加：BGワーカー用（モジュールは pyt
 
 # --- サードパーティ ---
 import streamlit as st
-from ib_insync import Index, util, Trade
+
+# ★★★ ここで必ずイベントループを用意してから、ib_insync を import する ★★★
+# （eventkit は import 時に get_event_loop するため）
+try:
+    # 既存ループが無ければ作る
+    asyncio.get_running_loop()
+except RuntimeError:
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+# 補助：自前のヘルパでもOK（どちらか片方で十分）
+ensure_event_loop()
+
+from ib_insync import Index, util, Trade  # noqa: E402
 try:
     # Streamlitの外部スレッドでも安全に動かす（ログ/状態アクセスの警告抑止）
     from streamlit.runtime.scriptrunner import add_script_run_ctx
 except Exception:
     add_script_run_ctx = None
 # --- プロジェクト内部（★ ここへ移動） ---
-from src.ib_client import IBClient, make_etf
-from src.utils.logger import get_logger
-from src.ib.orders import (
+from src.ib_client import IBClient, make_etf  # noqa: E402
+from src.utils.logger import get_logger  # noqa: E402
+from src.ib.orders import (  # noqa: E402
     StockSpec,
     bracket_buy_with_stop,
     decide_lmt_stop_take,
     run_put_long,
 )
-from src.ib.options import Underlying, pick_option_contract, sell_option
-from src.config import OrderPolicy
-from src.orders.manual_order import place_manual_order
+from src.ib.options import Underlying, pick_option_contract, sell_option  # noqa: E402
+from src.config import OrderPolicy  # noqa: E402
+from src.orders.manual_order import place_manual_order  # noqa: E402
 
 # 自動再描画（community版）。無ければフォールバック定義。
 try:
@@ -52,9 +64,6 @@ except Exception:
         # 依存が無い場合は“手動更新ボタン”に置換
         st.caption("（自動更新コンポーネント未導入のため手動更新）")
         st.button("Refresh status", key=f"refresh_{key or 'status'}", help="クリックで更新してください")
-
-# ← ここで必ず一度イベントループを準備（Windowsポリシーも反映済みのはず）
-ensure_event_loop()
 
 def _wait_filled(trade: Trade, timeout_sec: float = 120.0) -> bool:
     """
@@ -593,6 +602,16 @@ if colA.button("Connect"):
             ensure_event_loop()                           # ← 追加
             cli.connect(market_data_type=int(md_type))
             st.session_state["ib_client"] = cli
+            # ★ 一度だけ IB の errorEvent をフックして、TWS 側の拒否も必ずログ化
+            if not st.session_state.get("_ib_error_hooked"):
+                def _on_ib_error(reqId, code, msg, **kw):
+                    orders_log.error("[IB ERROR] reqId=%s code=%s msg=%s extra=%s", reqId, code, msg, kw)
+                try:
+                    cli.ib.errorEvent += _on_ib_error
+                    st.session_state["_ib_error_hooked"] = True
+                    orders_log.info("[HOOK] IB errorEvent hooked")
+                except Exception as e:
+                    orders_log.error(f"[HOOK ERROR] failed to hook errorEvent: {e}")
             # --- 環境バナー＆口座検証（ここなら cli が存在） ---
             env = os.getenv("RUN_MODE", "paper")
             accts = cli.ib.managedAccounts() or []
