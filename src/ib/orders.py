@@ -271,6 +271,15 @@ def run_put_long(
     戻り値: ログ行のリスト
     """
     msgs: List[str] = []
+    # ★ 入口で必ずログ（ここが出ない＝そもそも関数に到達していない）
+    try:
+        is_conn = bool(getattr(ib, "isConnected", lambda: False)())
+    except Exception:
+        is_conn = False
+    log.info(
+        "[ENTER] run_put_long symbol=%s contracts=%s dry_run=%s manual=%s offset=%s ib_connected=%s",
+        symbol, contracts, dry_run, manual_price, pct_offset, is_conn
+    )
 
     # 0) 入力バリデーション（共通）
     qty = int(contracts)
