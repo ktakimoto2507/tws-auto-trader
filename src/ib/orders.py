@@ -5,7 +5,10 @@ from uuid import uuid4
 
 from ib_insync import IB, Stock, Order
 from ..utils.logger import get_logger
-from .options import pick_option_contract, sell_option, buy_option, Underlying
+from .options import (
+    pick_option_contract, sell_option, buy_option, Underlying,
+    ensure_delayed_md, pick_uvix_atm_put, build_uvix_put_contract, get_option_mid
+)
 
 log = get_logger("orders")
 
@@ -302,24 +305,80 @@ def run_put_long(
         msgs.append(line2)
         return msgs
 
-    # 2) LIVE（ib 必須）：チェーン取得→最適PUT選定→発注
+    # 2) LIVE（ib 必須）：チェーン取得→最適PUT選定→発注（全域で例外を捕捉してログ）
     try:
-        und = Underlying(symbol=symbol, exchange="SMART", currency="USD")
-        opt, strike, expiry = pick_option_contract(
-            ib,
-            und=und,
-            right="P",
-            pct_offset=pct_offset,
-            override_price=(float(manual_price) if manual_price else None),
-        )
-    except Exception as e:
-        msg = f"[PLAN] {symbol} P+ 不可（仕様取得失敗: {e}）"
-        log.warning(msg)
-        msgs.append(msg)
-        return msgs
+        if ib is None:
+            raise RuntimeError("ib is None (LIVE実行には接続済みIBが必要)")
+        if not ib.isConnected():
+            raise RuntimeError("IB 未接続（ib.isConnected() == False）")
 
-    buy_option(ib, opt=opt, qty=qty, dry_run=False, oca_group=oca_group)
-    live_line = f"[LIVE] {symbol} PUT BUY {qty} @ {strike} ({expiry})"
-    log.info(live_line)
-    msgs.append(live_line)
-    return msgs
+        if symbol.upper() == "UVIX":
+            # ---- UVIX専用：MDは live→ダメなら delayed、鎖は Timeout 時ローカル推定にフォールバック ----
+            md = ensure_delayed_md(ib, prefer_live=True)
+            log.info("[UVIX] STEP1 ok: MDType=%s", md)
+
+            # ATM PUT 決定（pick_uvix_atm_put は reqSecDefOptParams timeout 時にローカル推定へ）
+            spec = pick_uvix_atm_put(
+                ib=ib,
+                manual_price=float(manual_price) if manual_price else None,
+                offset=float(pct_offset),
+            )
+            log.info("[UVIX] STEP2 ok: decided strike=%.2f expiry=%s", spec.strike, spec.expiry)
+
+            # 契約 qualify
+            opt = build_uvix_put_contract(ib, spec)
+
+            # 価格は MID 優先、取れなければ MKT にフォールバック
+            mid = get_option_mid(ib, opt)
+            use_lmt = bool(mid and mid > 0)
+            if use_lmt:
+                lmt = round(float(mid) + 0.05, 2)
+                order = Order(orderType="LMT", action="BUY", totalQuantity=int(qty), lmtPrice=float(lmt), tif="DAY")
+            else:
+                order = Order(orderType="MKT", action="BUY", totalQuantity=int(qty), tif="DAY")
+                log.info("[UVIX] MID not available -> use MKT")
+
+            if oca_group:
+                order.ocaGroup = oca_group
+
+            trade = ib.placeOrder(opt, order)
+
+            # 軽いステータス追跡
+            for _ in range(12):
+                ib.waitOnUpdate(timeout=0.5)
+                st = trade.orderStatus.status
+                if st in ("Filled", "Cancelled", "ApiCancelled", "Inactive"):
+                    break
+
+            log.info("[UVIX] [STATUS] %s filled=%s avgPrice=%s",
+                     trade.orderStatus.status, trade.orderStatus.filled, trade.orderStatus.avgFillPrice)
+
+            if use_lmt:
+                msgs.append(f"[LIVE] UVIX PUT BUY {qty} @ {spec.strike} ({spec.expiry}) LMT≈{lmt:.2f} mid≈{float(mid):.2f} status={trade.orderStatus.status}")
+            else:
+                msgs.append(f"[LIVE] UVIX PUT BUY {qty} @ {spec.strike} ({spec.expiry}) MKT status={trade.orderStatus.status}")
+            return msgs
+ 
+        else:
+            # --- 既存の一般銘柄ルート（従来どおり） ---
+            log.info("[LIVE] run_put_long: qualifying + picking contract for %s", symbol)
+            und = Underlying(symbol=symbol, exchange="SMART", currency="USD")
+            opt, strike, expiry = pick_option_contract(
+                ib,
+                und=und,
+                right="P",
+                pct_offset=pct_offset,
+                override_price=(float(manual_price) if manual_price else None),
+            )
+            log.info("[LIVE] contract picked: strike=%s expiry=%s", strike, expiry)
+            buy_option(ib, opt=opt, qty=qty, dry_run=False, oca_group=oca_group)
+            live_line = f"[LIVE] {symbol} PUT BUY {qty} @ {strike} ({expiry})"
+            log.info(live_line)
+            msgs.append(live_line)
+            return msgs
+        
+    except Exception as e:
+        # ★ stacktrace を必ず残す
+        log.exception("[LIVE] run_put_long failed with exception")
+        msgs.append(f"[LIVE ERROR] {type(e).__name__}: {e}")
+        return msgs

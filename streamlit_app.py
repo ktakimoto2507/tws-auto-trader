@@ -25,6 +25,14 @@ import time as pytime  # ← 追加：BGワーカー用（モジュールは pyt
 
 # --- サードパーティ ---
 import streamlit as st
+from dotenv import load_dotenv, find_dotenv
+
+# .env を確実に解決（作業ディレクトリに依存しない）
+_env_path = find_dotenv(filename=".env", usecwd=True)
+load_dotenv(dotenv_path=_env_path, override=True)
+
+# 起動時に一度だけ環境値をログ（確認用）
+logging.getLogger("options").info(f"[ENV] UVIX_CONID={os.getenv('UVIX_CONID')!r} path={_env_path or '(not found)'}")
 
 # ★★★ ここで必ずイベントループを用意してから、ib_insync を import する ★★★
 # （eventkit は import 時に get_event_loop するため）
@@ -58,7 +66,7 @@ from src.orders.manual_order import place_manual_order  # noqa: E402
 
 # 自動再描画（community版）。無ければフォールバック定義。
 try:
-    from streamlit_extras.st_autorefresh import st_autorefresh
+    from streamlit_extras.st_autorefresh import st_autorefresh  # type: ignore[reportMissingImports]
 except Exception:
     def st_autorefresh(interval: int = 1500, key: str | None = None):
         # 依存が無い場合は“手動更新ボタン”に置換
@@ -828,7 +836,7 @@ with st.container(border=True):
                 st_autorefresh(interval=1500, key="poll_uvix")
         # --- 追加：UVIX 実行（ATM Put BUY = P+） ---
         st.divider()
-        st.markdown("**UVIX – ATM Put BUY (P\+) 実行**")
+        st.markdown("**UVIX – ATM Put BUY (P+) 実行**")
         with st.form("form_uvix_buy", clear_on_submit=False):
             contracts_uvix = st.number_input("Contracts (枚数)", min_value=1, step=1, value=int(os.getenv("CONTRACTS_UVIX", "20")), key="contracts_uvix_buy")
             pct_offset_uvix = st.number_input("ATM offset (±, 例: 0 = ATM)", min_value=-0.50, max_value=0.50, value=0.00, step=0.01, format="%.2f", key="pct_offset_uvix_buy")
