@@ -11,7 +11,7 @@ import logging
 from dataclasses import dataclass
 from typing import Optional, List, Tuple
 
-from ib_insync import IB, Contract, Stock, Option, util, LimitOrder, MarketOrder, StopOrder, Trade
+from ib_insync import IB, Contract, Stock, Option, LimitOrder, MarketOrder, StopOrder, Trade
 from dotenv import load_dotenv
 import math
 import os
@@ -60,6 +60,13 @@ def _round_to_increment(x: float, inc: float) -> float:
 
 def _is_finite(x):
     return x is not None and not (isinstance(x, float) and (math.isnan(x) or math.isinf(x)))
+
+def _is_pos(x) -> bool:
+    """有限かつ正（>0）の価格だけを '使える価格' とみなす"""
+    try:
+        return _is_finite(x) and float(x) > 0.0
+    except Exception:
+        return False
 
 def _fetch_mark_prices(ib: IB, contract: Contract, wait_sec: float = 1.0):
     """
@@ -333,10 +340,6 @@ def place_uvix_p_plus_order(
         stop_loss_pct = float(env_stp) if env_stp.strip() != "" else None
     if account is None:
         account = os.getenv("ORDER_ACCOUNT", None)
-    if min_premium is None:
-        min_premium = float(os.getenv("MIN_OPTION_PREMIUM", "0.05"))
-    if max_contracts is None:
-        max_contracts = int(os.getenv("UVIX_OPT_MAX_CONTRACTS", "300"))
 
     ib = _ensure_connection(host, port, client_id)
     contract = _qualify_uvix_contract(ib, conid)
@@ -440,7 +443,8 @@ def place_uvix_put_plus_order(
     request_mktdata_type: int = 1,   # 1=Live, 3=Delayed
     strike_increment: float = 0.5,   # UVIXの一般的な刻み
     price_improve: float = 0.01,
-    expiry: Optional[str] = None,          # 例:'20251107'。未指定なら最短
+    expiry: Optional[str] = None,
+    strike: Optional[float] = None,        # ← 明示ストライク（例: 12.0）を優先
     strike_round: str = "ceil",            # 'ceil'（推奨）/ 'nearest'
     min_premium: Optional[float] = None,   # 最低プレミアム（既定は .env or 0.05）
     max_contracts: Optional[int] = None,   # 最大枚数（既定は .env or 300）
@@ -463,6 +467,8 @@ def place_uvix_put_plus_order(
         raise RuntimeError("UVIX_CONID が .env にありません。例: UVIX_CONID='752090595'")
     if account is None:
         account = os.getenv("ORDER_ACCOUNT", None)
+    min_premium = float(os.getenv("MIN_OPTION_PREMIUM", "0.05"))
+    max_contracts = int(os.getenv("UVIX_OPT_MAX_CONTRACTS", "300"))
     if min_premium is None:
         min_premium = float(os.getenv("MIN_OPTION_PREMIUM", "0.05"))
     if max_contracts is None:
@@ -483,9 +489,7 @@ def place_uvix_put_plus_order(
 
     # --- オプション仕様の取得
     # 正しい引数順: (symbol, futFopExchange, underlyingSecType, underlyingConId)
-    params = ib.reqSecDefOptParams(
-        underlying.symbol, "", underlying.secType, underlying.conId
-    )
+    params = ib.reqSecDefOptParams(underlying.symbol, "", underlying.secType, underlying.conId)
     if not params:
         raise RuntimeError("UVIX のオプション仕様が取得できませんでした。")
     # SMART優先 / 期限が多いチェーン優先で選ぶ
@@ -498,14 +502,19 @@ def place_uvix_put_plus_order(
     if not expirations or not strikes:
         raise RuntimeError("UVIX の有効な満期/ストライクが見つかりません。")
 
-    target_raw = mark * (1 + float(moneyness_pct))
-    # まずリスト中で target_raw 以上の最小（=ceil）を探す
-    ge = sorted([s for s in strikes if s >= target_raw])
-    if strike_round.lower() == "ceil" and ge:
-        strike = ge[0]
+    # strike を明示指定されたらそれを最優先（チェーンに無ければ上側へ寄せる）
+    if strike is not None:
+        if strike not in strikes:
+            ge = [s for s in strikes if s >= strike]
+            strike = (min(ge) if ge else min(strikes, key=lambda s: abs(s - strike)))
     else:
-        # 無ければ最も近い値（nearest）。刻み丸めは不要（上場ストライクから選ぶ）
-        strike = min(strikes, key=lambda s: abs(s - target_raw))
+        target_raw = mark * (1 + float(moneyness_pct))
+        eps = 1e-9  # 浮動小数点誤差対策
+        if strike_round.lower() == "ceil":
+            ge = [s for s in strikes if s + eps >= target_raw]
+            strike = (min(ge) if ge else max(strikes))
+        else:
+            strike = min(strikes, key=lambda s: abs(s - target_raw))
 
     # 満期：指定があればそれ、なければ最短
     if expiry:
@@ -529,46 +538,52 @@ def place_uvix_put_plus_order(
     except Exception as e:
         raise RuntimeError(f"オプション契約の解決に失敗: {e}")
 
-    # 1st try: 通常スナップショット
+    # 1st try: 通常スナップショット（正の価格のみ採用）
     t = ib.reqMktData(opt, "", snapshot=True, regulatorySnapshot=False)
     ib.sleep(0.7)
     bid = _num(getattr(t, "bid", None))
+    bid = bid if _is_pos(bid) else None
     ask = _num(getattr(t, "ask", None))
+    ask = ask if _is_pos(ask) else None
     last = _num(getattr(t, "last", None) or t.marketPrice())
-    # 2nd try: NBBO 単発（任意）
-    if not (_is_finite(bid) or _is_finite(ask) or _is_finite(last)) and USE_REG_SNAPSHOT:
+    last = last if _is_pos(last) else None
+    # 2nd try: NBBO 単発（USE_REG_SNAPSHOT=1 のとき）
+    if not (bid or ask or last) and USE_REG_SNAPSHOT:
         t = ib.reqMktData(opt, "", snapshot=True, regulatorySnapshot=True)
         ib.sleep(0.7)
-        bid = bid if _is_finite(bid) else _num(getattr(t, "bid", None))
-        ask = ask if _is_finite(ask) else _num(getattr(t, "ask", None))
-        last = last if _is_finite(last) else _num(getattr(t, "last", None) or t.marketPrice())
+        b2 = _num(getattr(t, "bid", None))
+        b2 = b2 if _is_pos(b2) else None
+        a2 = _num(getattr(t, "ask", None))
+        a2 = a2 if _is_pos(a2) else None
+        l2 = _num(getattr(t, "last", None) or t.marketPrice())
+        l2 = l2 if _is_pos(l2) else None
+        bid = bid or b2
+        ask = ask or a2
+        last = last or l2
 
-    # MID を計算
+    # MID を計算（正値のみ）
     mid = None
-    if _is_finite(bid) and _is_finite(ask) and bid > 0 and ask > 0:
+    if _is_pos(bid) and _is_pos(ask):
         mid = round((bid + ask) / 2.0, 2)
-    elif _is_finite(last) and last > 0:
+    elif _is_pos(last):
         mid = round(last, 2)
 
-    # 指値：MID-改善幅 を、BID〜ASK にクランプ。情報が片側だけなら片側に寄せる
-    if _is_finite(mid):
-        px = round(max(0.01, mid - float(price_improve)), 2)
-        if _is_finite(ask):
-            px = min(px, ask)
-        if _is_finite(bid):
-            px = max(px, bid)
-        limit = px
-    elif _is_finite(ask):
-        limit = float(ask)           # フィル重視
-    elif _is_finite(bid):
-        limit = float(bid)           # 攻め重視（約定性は落ちる）
-    elif _is_finite(last):
+    # Buy は ASK を最優先（約定性重視）。次に MID-改善、BID、LAST の順。
+    if _is_pos(ask):
+        limit = float(ask)
+    elif _is_pos(mid):
+        limit = round(mid - float(price_improve), 2)
+        if _is_pos(bid):
+            limit = max(limit, float(bid))  # 下限をBIDにクランプ
+    elif _is_pos(bid):
+        limit = float(bid)
+    elif _is_pos(last):
         limit = float(last)
     else:
         raise RuntimeError("オプション価格が取得できません（板/購読権限をご確認ください）。")
 
     # 最低プレミアムの下限を適用（0.01暴走防止）
-    if limit < float(min_premium):
+    if not _is_pos(limit) or float(limit) < float(min_premium):
         raise RuntimeError(f"算出指値 {limit:.2f} が最低プレミアム {min_premium:.2f} 未満のため中止しました。")
 
     # 口数（枚数）= 予算 / (指値 × 100)
