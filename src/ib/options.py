@@ -2,17 +2,75 @@
 
 from __future__ import annotations
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, date
 from typing import Literal, Optional, Tuple, List
 
 from zoneinfo import ZoneInfo
 from ib_insync import IB, Option, Contract, Stock, ContractDetails, util
+import re
 import os
 from ..utils.logger import get_logger
 
 log = get_logger("options")
 
 Right = Literal["C", "P"]
+
+#
+# === Fast/Deterministic: 決め打ちで最短に撃つためのユーティリティ ===
+#   使い方の例は本ファイル末尾の buy_option 変更点の後に記載
+#
+@dataclass(frozen=True)
+class ManualOptionSpec:
+    """
+    決め打ち入力。優先順: conId > localSymbol > (symbol, expiry_yyyymmdd, strike, right)
+    exchange/currency は SMART/USD を既定にする。
+    """
+    conId: Optional[int] = None
+    localSymbol: Optional[str] = None
+    symbol: str = "UVIX"
+    expiry_yyyymmdd: Optional[str] = None
+    strike: Optional[float] = None
+    right: Optional[str] = None  # "P" or "C"
+    exchange: str = "SMART"
+    currency: str = "USD"
+
+def resolve_option_fast(ib: IB, spec: ManualOptionSpec, *, try_qualify_sec: float = 4.0) -> Option:
+    """
+    決め打ちで Option を最短構築。
+      1) conId があれば Option(conId=...) で組み立て
+      2) localSymbol があればそれで組み立て
+      3) それ以外は (symbol, expiry, strike, right) で組み立て
+    可能なら短時間だけ qualify を“試す”。失敗しても opt は返す（発注時に TWS 側で解決）。
+    """
+    if spec.conId:
+        opt = Option(conId=int(spec.conId), exchange=spec.exchange, currency=spec.currency)
+    elif spec.localSymbol:
+        opt = Option(localSymbol=spec.localSymbol, exchange=spec.exchange, currency=spec.currency)
+    else:
+        if not (spec.expiry_yyyymmdd and spec.strike is not None and spec.right):
+            raise ValueError("resolve_option_fast: need (expiry_yyyymmdd, strike, right) or conId/localSymbol")
+        opt = Option(
+            spec.symbol,
+            spec.expiry_yyyymmdd,
+            float(spec.strike),
+            spec.right,
+            spec.exchange,
+            spec.currency,
+        )
+
+    # qualify を短時間だけ“試す”（失敗しても OK）
+    saved_to = getattr(ib, "RequestTimeout", None)
+    try:
+        if saved_to is not None:
+            ib.RequestTimeout = max(1, int(try_qualify_sec))
+        try:
+            ib.qualifyContracts(opt)
+        except Exception as e:
+            log.info(f"[FAST] qualify skip (TWSに解決委任): {e!r}")
+    finally:
+        if saved_to is not None:
+            ib.RequestTimeout = saved_to
+    return opt
 
 def _fmt_opt_label(opt: Option) -> str:
     """ログ用の読みやすい表記に整形"""
@@ -195,11 +253,12 @@ def pick_uvix_atm_put(
         raise RuntimeError("UVIX_CONID not set (put it in .env)")
     conid = int(env_conid)
     # 2) conId直指定でオプション鎖メタ取得（失敗/Timeout時はローカル推定でフォールバック）
+    # --- チェーン取得は“粘る”：デフォは短いことがあるので 35s 程度まで許容 ---
     default_to = getattr(ib, "RequestTimeout", None)
     opt_params = None
     try:
         if default_to is not None:
-            ib.RequestTimeout = 10
+            ib.RequestTimeout = max(35, int(default_to) if isinstance(default_to, int) else 35)
         opt_params = ib.reqSecDefOptParams("UVIX", "", "STK", conid)
     except Exception as e:
         log.info(f"[UVIX] reqSecDefOptParams timeout -> fallback: {e!r}")
@@ -208,29 +267,27 @@ def pick_uvix_atm_put(
             ib.RequestTimeout = default_to
 
     chain = opt_params[0] if opt_params else None
+    fallback_mode = False
     if chain:
         trading_class = chain.tradingClass or "UVIX"
         strikes = sorted([float(s) for s in chain.strikes if s is not None])
-        expiries = sorted(chain.expirations)  # 'YYYY-MM-DD'
+        expiries = sorted(chain.expirations)  # 'YYYY-MM-DD'（=実在する満期）
     else:
         # ===== フォールバック =====
         from datetime import datetime, timedelta, timezone
+        fallback_mode = True
         trading_class = "UVIX"
         # ストライク刻み：UVIX は 0.5 刻み相当で十分（実際の刻みは qualify 時に補正）
         # 0.5 から 200.0 まで仮生成（必要十分なレンジ）
         strikes = [round(0.5 + 0.5*i, 2) for i in range(0, 400)]
-        # 満期：本日から dte_min〜dte_max の間に入る「最寄りの金曜」を1つ選ぶ
+        # 満期候補：直近金曜 ±1〜3週 の最大7候補（※後段で存在確認してから使う）
         today = datetime.now(timezone.utc).date()
-        cand = []
-        for d in range(dte_min, dte_max+1):
-            day = today + timedelta(days=d)
-            if day.weekday() == 4:  # Friday
-                cand.append(day.isoformat())
-        if not cand:
-            # どうしても見つからない時は dte_min の日付を採用
-            cand = [(today + timedelta(days=dte_min)).isoformat()]
-        expiries = [cand[0]]
-        log.info(f"[UVIX] Fallback expiries={expiries[0]} (Fri near DTE {dte_min}-{dte_max}), strikes≈{len(strikes)}")
+        # まず最寄り金曜を特定
+        base = today + timedelta(days=(4 - today.weekday()) % 7)
+        # 直近金曜(=11/7に相当)を最優先し、その次に「-7 → +7」の順で舐める
+        offs = [0, -7, +7, -14, +14, -21, +21]
+        expiries = [(base + timedelta(days=o)).isoformat() for o in offs]
+        log.info(f"[UVIX] Fallback expiry candidates={expiries} (±週) strikes≈{len(strikes)}")
 
     # 3) 価格は manual 必須（MD購読が無くても動かすため）
     px = manual_price
@@ -239,12 +296,33 @@ def pick_uvix_atm_put(
 
     # 満期（DTE 7-35）
     today = util.dt.datetime.now(util.dt.timezone.utc).date()
-    def _dte(iso: str) -> int:
-        d = util.parseIBDatetime(iso).date()
+    def _dte(iso_like) -> int:
+        # 'YYYYMMDD' / 'YYYY-MM-DD' / 'YYYYMMDD HH:MM:SS' / date/datetime を許容
+        if isinstance(iso_like, datetime):
+            d = iso_like.date()
+        elif isinstance(iso_like, date):
+            d = iso_like
+        elif isinstance(iso_like, str):
+            s = iso_like.strip()
+            if re.fullmatch(r"\d{8}", s):
+                d = datetime.strptime(s, "%Y%m%d").date()
+            elif re.fullmatch(r"\d{4}-\d{2}-\d{2}", s):
+                d = datetime.strptime(s, "%Y-%m-%d").date()
+            else:
+                d = util.parseIBDatetime(s).date()
+        else:
+            raise ValueError(f"Unsupported expiry value: {iso_like!r}")
         return (d - today).days
-    expiries_dte = [(e, _dte(e)) for e in expiries]
-    expiries_dte = [x for x in expiries_dte if dte_min <= x[1] <= dte_max] or \
-                   sorted([(e, _dte(e)) for e in expiries], key=lambda x: abs(x[1]))
+
+    # チェーン取得できた場合は従来通り DTE 7–35 を優先
+    # フォールバック時は DTE>=0（=直近将来）を許容して最短を採用（= 11/7 を通す）
+    expiries_dte_all = [(e, _dte(e)) for e in expiries]
+    if fallback_mode:
+        candidates = [x for x in expiries_dte_all if x[1] >= 0]
+        expiries_dte = candidates or sorted(expiries_dte_all, key=lambda x: abs(x[1]))
+    else:
+        expiries_dte = [x for x in expiries_dte_all if dte_min <= x[1] <= dte_max] or \
+                       sorted(expiries_dte_all, key=lambda x: abs(x[1]))
     expiry_iso = expiries_dte[0][0]
     expiry_yymmdd = expiry_iso.replace("-", "")
 
@@ -256,30 +334,106 @@ def pick_uvix_atm_put(
     return UVIXPutSpec(expiry_yymmdd, strike, "P", trading_class)
 
 def build_uvix_put_contract(ib: IB, spec: UVIXPutSpec) -> Option:
-    c = Option(
+    """
+    まず SMART で qualify。失敗/timeout 時は
+    - 満期を「対象日 ± 0, +7, -7, +14, -14, +21, -21（営業週）」で横断
+    - 取引所候補（オプション市場）を横断
+    して reqContractDetails で実在契約を特定する。
+    """
+    from datetime import datetime, timedelta
+
+    base_kwargs = dict(
         symbol="UVIX",
-        lastTradeDateOrContractMonth=spec.expiry,
+        lastTradeDateOrContractMonth=spec.expiry,   # YYYYMMDD（目安）
         strike=float(spec.strike),
         right="P",
-        exchange="SMART",
         currency="USD",
         tradingClass=spec.tradingClass or "UVIX",
         multiplier="100",
     )
-    # 一時的にタイムアウト緩めると安定（環境次第）
+
+    # 満期候補（±数週間の金曜ベース）を作る
+    def _to_date(yyyymmdd: str) -> datetime.date:
+        return datetime.strptime(yyyymmdd, "%Y%m%d").date()
+
+    base_d = _to_date(spec.expiry)
+    # 金曜にスナップ（base が金曜でない場合、直近の金曜へ）
+    base_d = base_d + timedelta(days=(4 - base_d.weekday())) if base_d.weekday() != 4 else base_d
+    # 11/7 を早めに試すため、-7 を +7 より先に
+    friday_offsets = [0, -7, 7, -14, 14, -21, 21, -28, 28]
+    expiry_candidates = []
+    seen = set()
+    for off in friday_offsets:
+        d = base_d + timedelta(days=off)
+        ymd = d.strftime("%Y%m%d")
+        if ymd not in seen:
+            expiry_candidates.append(ymd)
+            seen.add(ymd)
+
+    # 取引所候補（オプション市場に限定）: CBOEOPT を最優先、SMART は最後
+    exch_candidates = ["CBOEOPT", "CBOE", "BOX", "C2", "SMART"]
+    # ATM穴対策: strike 近傍も試す（±0.5, ±1.0）
+    strike_offsets = [0.0, +0.5, -0.5, +1.0, -1.0]
+
+    # 1) 通常ルート：SMART で qualify
     default_to = getattr(ib, "RequestTimeout", None)
     try:
         if default_to is not None:
-            ib.RequestTimeout = 10
-        qc = ib.qualifyContracts(c)
+            # まずは“粘って”実在契約を取る（チェーンが取れていればここで成功しやすい）
+            ib.RequestTimeout = max(35, int(default_to) if isinstance(default_to, int) else 35)
+        c_smart = Option(exchange="SMART", **base_kwargs)
+        try:
+            qc = ib.qualifyContracts(c_smart)
+            if qc:
+                cd = ib.reqContractDetails(qc[0])[0]
+                log.info(
+                    "[UVIX] PUT qualified: conId=%s class=%s exch=%s",
+                    cd.contract.conId, cd.contract.tradingClass, cd.contract.exchange
+                )
+                return qc[0]
+        except Exception as e:
+            log.info("[UVIX] qualifyContracts(SMART) failed -> fallback: %r", e)
+
+        # 2) 満期×strike近傍×取引所 のフォールバック探索
+        #    1トライは 12s に拡大（全体の deadline は呼び出し側で管理）
+        per_try_timeout = 12
+        saved_to = getattr(ib, "RequestTimeout", None)
+        for ymd in expiry_candidates:
+            for off in strike_offsets:
+                s_try = round(float(spec.strike) + float(off), 2)
+                for ex in exch_candidates:
+                    c_try = Option(
+                        exchange=ex,
+                        **{
+                            **base_kwargs,
+                            "lastTradeDateOrContractMonth": ymd,
+                            "strike": s_try,
+                        },
+                    )
+                    try:
+                        if saved_to is not None:
+                            ib.RequestTimeout = per_try_timeout
+                        cds = ib.reqContractDetails(c_try)
+                        if not cds:
+                            log.info("[UVIX] reqContractDetails ex=%s exp=%s strike=%.2f: empty", ex, ymd, s_try)
+                            continue
+                        cd = cds[0]
+                        log.info(
+                            "[UVIX] PUT details: conId=%s class=%s exch=%s expiry=%s strike=%.2f (off=%+.2f)",
+                            cd.contract.conId, cd.contract.tradingClass, cd.contract.exchange, ymd, s_try, off
+                        )
+                        # 実在契約で返す（cd.contract は Option）
+                        return cd.contract
+                    except Exception as e2:
+                        log.info("[UVIX] reqContractDetails ex=%s exp=%s strike=%.2f failed: %r", ex, ymd, s_try, e2)
+                    finally:
+                        if saved_to is not None:
+                            ib.RequestTimeout = saved_to
+
+        raise RuntimeError("UVIX PUT Option qualify failed (expiry/exchanges all tried)")
     finally:
         if default_to is not None:
             ib.RequestTimeout = default_to
-    if not qc:
-        raise RuntimeError("UVIX PUT Option qualify failed")
-    cd = ib.reqContractDetails(qc[0])[0]
-    log.info(f"[UVIX] PUT qualified: conId={cd.contract.conId} class={cd.contract.tradingClass} exch={cd.contract.exchange}")
-    return qc[0]
 
 def get_option_mid(ib: IB, opt: Option, timeout: float = 6.0) -> Optional[float]:
     """
@@ -382,6 +536,7 @@ def sell_option(
     qty: float,
     *,
     dry_run: bool = True,
+    unsafe_skip_qualify: bool = False,  # ← 追加：決め打ち時に qualify を省略
     oca_group: Optional[str] = None,
 ):
     from ib_insync import Order
@@ -399,8 +554,12 @@ def sell_option(
         return o
 
     # オプション契約は qualify してから発注が安全
-    [qopt] = ib.qualifyContracts(opt)
-    trade = ib.placeOrder(qopt, o)
+    if unsafe_skip_qualify:
+        # conId/localSymbol で決め打ちしている場合は、TWS 側に契約解決を委ねて最短で発注
+        trade = ib.placeOrder(opt, o)
+    else:
+        [qopt] = ib.qualifyContracts(opt)
+        trade = ib.placeOrder(qopt, o)
     return trade.order
 
 def buy_option(
@@ -409,7 +568,8 @@ def buy_option(
     qty: float,
     *,
     dry_run: bool = True,
-    oca_group: Optional[str] = None,
+    unsafe_skip_qualify: bool = False,  # ← 追加：決め打ち（conId/localSymbol）時はqualify省略
+    oca_group: Optional[str] = None
 ):
     """P+ / C+ を想定したシンプルなマーケット買い（DRY対応）。"""
     from ib_insync import Order
@@ -426,6 +586,10 @@ def buy_option(
         )
         return o
 
-    [qopt] = ib.qualifyContracts(opt)
-    trade = ib.placeOrder(qopt, o)
+    if unsafe_skip_qualify:
+        # conId / localSymbol を決め打ちしている場合は TWS 側の契約解決に委任して最短で発注
+        trade = ib.placeOrder(opt, o)
+    else:
+        [qopt] = ib.qualifyContracts(opt)
+        trade = ib.placeOrder(qopt, o)
     return trade.order

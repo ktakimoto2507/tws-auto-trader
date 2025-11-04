@@ -7,9 +7,10 @@ from ib_insync import IB, Stock, Order
 from ..utils.logger import get_logger
 from .options import (
     pick_option_contract, sell_option, buy_option, Underlying,
-    ensure_delayed_md, pick_uvix_atm_put, build_uvix_put_contract, get_option_mid
+    ensure_delayed_md, pick_uvix_atm_put, build_uvix_put_contract, get_option_mid,
+    ManualOptionSpec, resolve_option_fast,   # ← 追加：決め打ちユーティリティ
 )
-
+import os  # ← 追加：環境変数で Fast path を制御
 log = get_logger("orders")
 
 
@@ -316,7 +317,30 @@ def run_put_long(
             # ---- UVIX専用：MDは live→ダメなら delayed、鎖は Timeout 時ローカル推定にフォールバック ----
             md = ensure_delayed_md(ib, prefer_live=True)
             log.info("[UVIX] STEP1 ok: MDType=%s", md)
-
+            # === Fast path: 環境変数があれば Discovery をバイパスして即発注 ===
+            fast_conid = os.getenv("UVIX_P_CONID")
+            fast_local = os.getenv("UVIX_P_LOCAL")
+            fast_exp   = os.getenv("UVIX_P_EXP")
+            fast_strk  = os.getenv("UVIX_P_STRIKE")
+            if fast_conid or fast_local or (fast_exp and fast_strk):
+                try:
+                    spec = (
+                        ManualOptionSpec(conId=int(fast_conid))
+                        if fast_conid else
+                        ManualOptionSpec(localSymbol=fast_local)
+                        if fast_local else
+                        ManualOptionSpec(expiry_yyyymmdd=str(fast_exp), strike=float(fast_strk), right="P")
+                    )
+                    opt = resolve_option_fast(ib, spec, try_qualify_sec=3)
+                    order = buy_option(
+                        ib, opt=opt, qty=qty, dry_run=dry_run, oca_group=oca_group, unsafe_skip_qualify=True
+                    )
+                    msg = f"[{'DRY' if dry_run else 'LIVE'}] UVIX PUT BUY (FAST) {qty} {getattr(opt,'localSymbol','')} submitted"
+                    log.info(msg)
+                    msgs.append(msg)
+                    return msgs
+                except Exception as e:
+                    log.info("[P+] FAST path failed -> fallback to discovery: %r", e)
             # ATM PUT 決定（pick_uvix_atm_put は reqSecDefOptParams timeout 時にローカル推定へ）
             spec = pick_uvix_atm_put(
                 ib=ib,
