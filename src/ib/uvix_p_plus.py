@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import Optional, List, Tuple
+from typing import Optional, List, Tuple, cast
 
 from ib_insync import IB, Contract, Stock, Option, LimitOrder, MarketOrder, StopOrder, Trade
 from dotenv import load_dotenv
@@ -18,11 +18,42 @@ import os
 import uuid
 
 
+def first_finite(*vals: Optional[float]) -> Optional[float]:
+    for v in vals:
+        try:
+            if v is not None and isinstance(v, (int, float)) and math.isfinite(float(v)):
+                return float(v)
+        except Exception:
+            pass
+    return None
+
+def require_float(name: str, val: Optional[float]) -> float:
+    # Optional を先に排除してから cast → float に確定
+    if val is None:
+        raise RuntimeError(f"{name} が取得できませんでした。前段の購読/スナップショット設定をご確認ください。")
+    v = cast(float, val)      # ここで静的に float 確定
+    f = float(v)
+    if not math.isfinite(f):
+        raise RuntimeError(f"{name} が有限値ではありません: {f!r}")
+    return f
+
+def ensure_positive(name: str, val: float) -> float:
+    if val <= 0:
+        raise RuntimeError(f"{name} が正の値ではありません: {val}")
+    return val
+
+
 log = logging.getLogger("uvix_p_plus")
+# 自動価格改善のモジュール既定値（.envで上書き可）
+DEFAULT_MAX_IMPROVE_TICKS = int(os.getenv("UVIX_MAX_IMPROVE_TICKS", "2"))
+DEFAULT_IMPROVE_WAIT_SEC = float(os.getenv("UVIX_IMPROVE_WAIT_SEC", "1.2"))
 
 
 # 規制スナップショット（NBBO単発取得）を使うかどうか（※口座設定によっては課金あり）
-USE_REG_SNAPSHOT = os.getenv("IB_USE_REG_SNAPSHOT", "0") == "1"
+# 既存 IB_USE_REG_SNAPSHOT を尊重しつつ、USE_REG_SNAPSHOT も受け付ける
+USE_REG_SNAPSHOT = (
+    os.getenv("IB_USE_REG_SNAPSHOT", os.getenv("USE_REG_SNAPSHOT", "0")) == "1"
+)
 
 @dataclass
 class UVIXPPlusState:
@@ -53,10 +84,6 @@ def _num(n) -> Optional[float]:
         return float(n) if n is not None else None
     except Exception:
         return None
-
-def _round_to_increment(x: float, inc: float) -> float:
-    """x を inc 刻みに四捨五入（例: 0.5 刻み）"""
-    return round(round(x / inc) * inc, 2)
 
 def _is_finite(x):
     return x is not None and not (isinstance(x, float) and (math.isnan(x) or math.isinf(x)))
@@ -127,17 +154,29 @@ def _fetch_mark_prices(ib: IB, contract: Contract, wait_sec: float = 1.0):
             pass
 
     return last, bid, ask, close
+def _get_option_min_tick(ib: IB, opt: Contract) -> float:
+    """オプションの minTick を取得。失敗時は 0.05 フォールバック。"""
+    try:
+        cds = ib.reqContractDetails(opt)
+        if cds:
+            mt = cds[0].minTick
+            if mt and mt > 0:
+                return float(mt)
+    except Exception:
+        pass
+    return 0.05
 
 def _calc_unrealized(qty: float, avg_cost: float, mark: Optional[float]) -> Optional[float]:
-    if qty == 0 or avg_cost is None or mark is None:
+    if qty == 0 or mark is None:
         return None
-    # qtyはロングで正、ショートで負
-    return (mark - avg_cost) * qty
+    # pyrightに Optional を完全排除させる
+    mark_f: float = cast(float, mark)
+    return (mark_f - avg_cost) * qty
 
 def get_uvix_p_plus_state(
-    host: str = None,
-    port: int = None,
-    client_id: int = None,
+    host: Optional[str] = None,
+    port: Optional[int] = None,
+    client_id: Optional[int] = None,
     request_mktdata_type: int = 3,  # 3=Delayed, 1=Live, 2=Frozen, 4=Delayed-Frozen
     mktdata_wait_sec: float = 1.0
 ) -> UVIXPPlusState:
@@ -152,14 +191,17 @@ def get_uvix_p_plus_state(
         raise RuntimeError("環境変数 UVIX_CONID が見つからないか不正です（例: UVIX_CONID='752090595'）。")
     conid = int(conid_str)
 
-    host = host or os.getenv("TWS_HOST", "127.0.0.1")
-    port = port or int(os.getenv("TWS_PORT", "7497"))
-    client_id = client_id or int(os.getenv("TWS_CLIENT_ID", "10"))
+    # ← Optional を確実に str/int に落とす（pyright が Optional を疑わない形に）
+    host_s: str = cast(str, host if host is not None else (os.getenv("TWS_HOST") or "127.0.0.1"))
+    port_s: str = cast(str, str(port) if port is not None else (os.getenv("TWS_PORT") or "7497"))
+    client_s: str = cast(str, str(client_id) if client_id is not None else (os.getenv("TWS_CLIENT_ID") or "10"))
+    port_i: int = int(port_s)
+    client_i: int = int(client_s)
 
     ib = IB()
     connected = False
     try:
-        ib.connect(host, port, clientId=client_id, timeout=5)
+        ib.connect(host_s, port_i, clientId=client_i, timeout=5)
         connected = ib.isConnected()
     except Exception as e:
         log.exception("TWS/IB接続に失敗しました: %s", e)
@@ -215,8 +257,11 @@ def get_uvix_p_plus_state(
         for p in positions:
             # p.contract.conId が一致するものを拾う
             if getattr(p.contract, "conId", None) == contract.conId and p.contract.secType == "STK":
-                state.position_qty = float(p.position or 0.0)
-                state.avg_cost = float(p.avgCost or 0.0)
+                 # NOTE: p.position / p.avgCost は float | None の可能性。明示分岐で float に確定
+                pos_raw = getattr(p, "position", None)
+                avg_raw = getattr(p, "avgCost", None)
+                state.position_qty = float(pos_raw) if isinstance(pos_raw, (int, float)) else 0.0
+                state.avg_cost = float(avg_raw) if isinstance(avg_raw, (int, float)) else 0.0
                 break
     except Exception as e:
         log.exception("positions() の取得に失敗: %s", e)
@@ -261,12 +306,16 @@ def get_uvix_p_plus_state(
 
 
 def _ensure_connection(host: str | None, port: int | None, client_id: int | None) -> IB:
+    """環境変数を用いて None を解消し、確実に str/int を渡す。"""
     ib = IB()
-    host = host or os.getenv("TWS_HOST", "127.0.0.1")
-    port = port or int(os.getenv("TWS_PORT", "7497"))
-    client_id = client_id or int(os.getenv("TWS_CLIENT_ID", "10"))
+    # ← Optional を確実に str/int に落とす（pyrightに確実に伝わるよう cast で固定）
+    host_s: str = cast(str, host if host is not None else (os.getenv("TWS_HOST") or "127.0.0.1"))
+    port_s: str = cast(str, str(port) if port is not None else (os.getenv("TWS_PORT") or "7497"))
+    client_s: str = cast(str, str(client_id) if client_id is not None else (os.getenv("TWS_CLIENT_ID") or "10"))
+    port_i: int = int(port_s)
+    client_i: int = int(client_s)
     if not ib.isConnected():
-        ib.connect(host, port, clientId=client_id, timeout=5)
+        ib.connect(host_s, port_i, clientId=client_i, timeout=5)
     return ib
 
 def _qualify_uvix_contract(ib: IB, conid: int) -> Contract:
@@ -293,11 +342,9 @@ def _mark_price_for_entry(ib: IB, contract: Contract, request_mktdata_type: int 
     except Exception:
         pass
     last, bid, ask, close = _fetch_mark_prices(ib, contract, wait_sec=0.7)
-    # 発注用の“マーク”は、ask→last→close→bid の順で選択
-    for x in (ask, last, close, bid):
-        if _is_finite(x):
-            return float(x)
-    raise RuntimeError("UVIXの価格が取得できませんでした（購読権限または接続を確認）")
+    # 発注用の“マーク”は、ask→last→close→bid の順で選択（Optional排除してfloat確定）
+    mark = first_finite(ask, last, close, bid)
+    return require_float("UVIXの価格", mark)
 
 def _calc_limit_from_mark(mark: float, side: str, bps: int) -> float:
     # BUY指値は mark に上乗せ、SELL指値は下乗せ（今回はBUYのみ）
@@ -317,6 +364,9 @@ def place_uvix_p_plus_order(
     account: str | None = None,
     request_mktdata_type: int | None = None,
     dry_run: bool = True,
+    # ここから追記：自動改善の上限・待機
+    max_improve_ticks: int = DEFAULT_MAX_IMPROVE_TICKS,
+    improve_wait_sec: float = DEFAULT_IMPROVE_WAIT_SEC,
     host: str | None = None,
     port: int | None = None,
     client_id: int | None = None,
@@ -344,40 +394,62 @@ def place_uvix_p_plus_order(
     ib = _ensure_connection(host, port, client_id)
     contract = _qualify_uvix_contract(ib, conid)
 
-    # マーク価格
-    mark = _mark_price_for_entry(ib, contract, request_mktdata_type=request_mktdata_type)
+    # マーク価格（float 確定）
+    mark: float = _mark_price_for_entry(ib, contract, request_mktdata_type=request_mktdata_type)
 
-    # 指値の決定
-    if order_type.upper() == "LMT":
+    # 指値（LMT時のみ有効）
+    ot = (order_type or "LMT").upper()
+    limit_v_opt: Optional[float] = None
+    # LMT の最終確定 float（Optional を残さない）
+    limit_v_f: float = 0.0
+    if ot == "LMT":
+        # Optional で候補を作る
         if limit_price is not None:
-            limit = float(limit_price)
+            limit_v_opt = float(limit_price)
         elif limit_from_mark_pct is not None:
-            limit = round(mark * (1 + float(limit_from_mark_pct)), 2)
+            limit_v_opt = round(mark * (1 + float(limit_from_mark_pct)), 2)
         else:
-            limit = _calc_limit_from_mark(mark, "BUY", limit_slippage_bps)
-    elif order_type.upper() == "MKT":
-        limit = None
+            limit_v_opt = _calc_limit_from_mark(mark, "BUY", limit_slippage_bps)
+        # ここで “非Optionalの確定 float” を作る（別名に固定）
+        limit_v_f = ensure_positive("limit", require_float("limit", limit_v_opt))
+    elif ot == "MKT":
+        pass  # 指値なし
     else:
         raise ValueError("order_type は 'MKT' または 'LMT' を指定してください。")
 
     # 数量の決定（LMT のときは “その指値” を基準に算出）
     if qty is None:
+        # Optional をここで完全に排除して Pyright に確実に伝える
         if budget is None or budget <= 0:
             raise ValueError("qty か budget のどちらかは必要です。")
-        ref_px = (limit if order_type.upper() == "LMT" and limit is not None else mark)
-        qty = int(max(1, budget // ref_px))
-
+        # 以降は float に固定して使う
+        budget_f: float = float(budget)
+        if ot == "LMT":
+            # LMT の基準価格は “確定 float” の limit_v_f
+            ref_px: float = limit_v_f
+        else:
+            ref_px = mark
+        qty = int(max(1, budget_f // ref_px))
+    # pyright向けに qty をintへ固定
+    if not isinstance(qty, int):
+        qty = int(qty or 0)
+        if qty <= 0:
+            raise RuntimeError("internal: qty must be positive int")
     # 親注文（BUY）
-    if order_type.upper() == "MKT":
+    if ot == "MKT":
         parent = MarketOrder("BUY", qty, tif=tif, account=account)
     else:
-        parent = LimitOrder("BUY", qty, limit, tif=tif, account=account)
+        # LMT：確定 float をそのまま渡す（Optional 不使用）
+        parent = LimitOrder("BUY", qty, limit_v_f, tif=tif, account=account)
 
     # 子注文（STOP 売り）
     children = []
     stop_px = None
     if stop_loss_pct is not None and stop_loss_pct > 0:
-        stop_px = round(mark * (1 - stop_loss_pct), 2)
+        # NOTE: stop_loss_pct は Optional[float]。ガード内で float に固定してから使用
+        stp_f: float = float(stop_loss_pct)
+        one_minus: float = 1.0 - stp_f  # 演算片側がOptionalに見える誤判定の抑止
+        stop_px = round(mark * one_minus, 2)
         stp = StopOrder("SELL", qty, stop_px, tif="GTC", account=account)
         children.append(stp)
 
@@ -394,10 +466,11 @@ def place_uvix_p_plus_order(
         parent.transmit = True
 
     if dry_run:
+        limit_ret: Optional[float] = (limit_v_f if ot == "LMT" else None)
         return {
             "dry_run": True,
             "qty": qty,
-            "limit": limit,
+            "limit": limit_ret,
             "stop": stop_px,
             "tif": tif,
             "account": account,
@@ -420,11 +493,11 @@ def place_uvix_p_plus_order(
             ch.transmit = (i == len(children) - 1)
             tr_child = ib.placeOrder(contract, ch)
             trades.append(tr_child)
-
+    limit_ret2: Optional[float] = (limit_v_f if ot == "LMT" else None)
     return {
         "dry_run": False,
         "qty": qty,
-        "limit": limit,
+        "limit": limit_ret2,
         "stop": stop_px,
         "tif": tif,
         "account": account,
@@ -452,6 +525,9 @@ def place_uvix_put_plus_order(
     host: Optional[str] = None,
     port: Optional[int] = None,
     client_id: Optional[int] = None,
+    # ▼ 自動価格改善（LIVE時のみ使用）
+    max_improve_ticks: int = DEFAULT_MAX_IMPROVE_TICKS,
+    improve_wait_sec: float = DEFAULT_IMPROVE_WAIT_SEC,
 ) -> dict:
     """
     1) 基礎価格（UVIX現物の mark）を取得
@@ -467,12 +543,14 @@ def place_uvix_put_plus_order(
         raise RuntimeError("UVIX_CONID が .env にありません。例: UVIX_CONID='752090595'")
     if account is None:
         account = os.getenv("ORDER_ACCOUNT", None)
-    min_premium = float(os.getenv("MIN_OPTION_PREMIUM", "0.05"))
-    max_contracts = int(os.getenv("UVIX_OPT_MAX_CONTRACTS", "300"))
     if min_premium is None:
         min_premium = float(os.getenv("MIN_OPTION_PREMIUM", "0.05"))
+    else:
+        min_premium = float(min_premium)
     if max_contracts is None:
         max_contracts = int(os.getenv("UVIX_OPT_MAX_CONTRACTS", "300"))
+    else:
+        max_contracts = int(max_contracts)
 
     # 接続と現物契約
     ib = _ensure_connection(host, port, client_id)
@@ -484,8 +562,8 @@ def place_uvix_put_plus_order(
     except Exception:
         pass
 
-    # 基礎価格（現値）
-    mark = _mark_price_for_entry(ib, underlying, request_mktdata_type=request_mktdata_type)
+    # 基礎価格（現値）: float 確定
+    mark: float = _mark_price_for_entry(ib, underlying, request_mktdata_type=request_mktdata_type)
 
     # --- オプション仕様の取得
     # 正しい引数順: (symbol, futFopExchange, underlyingSecType, underlyingConId)
@@ -502,19 +580,21 @@ def place_uvix_put_plus_order(
     if not expirations or not strikes:
         raise RuntimeError("UVIX の有効な満期/ストライクが見つかりません。")
 
-    # strike を明示指定されたらそれを最優先（チェーンに無ければ上側へ寄せる）
+    # strike を Optional のまま使わず、ここで float に確定
     if strike is not None:
-        if strike not in strikes:
-            ge = [s for s in strikes if s >= strike]
-            strike = (min(ge) if ge else min(strikes, key=lambda s: abs(s - strike)))
+        s0 = float(strike)
+        if s0 not in strikes:
+            ge = [s for s in strikes if s >= s0]
+            s0 = (min(ge) if ge else min(strikes, key=lambda x: abs(x - s0)))
+        strike_f: float = float(s0)
     else:
         target_raw = mark * (1 + float(moneyness_pct))
-        eps = 1e-9  # 浮動小数点誤差対策
+        eps = 1e-9
         if strike_round.lower() == "ceil":
             ge = [s for s in strikes if s + eps >= target_raw]
-            strike = (min(ge) if ge else max(strikes))
+            strike_f = float(min(ge) if ge else max(strikes))
         else:
-            strike = min(strikes, key=lambda s: abs(s - target_raw))
+            strike_f = float(min(strikes, key=lambda x: abs(x - target_raw)))
 
     # 満期：指定があればそれ、なければ最短
     if expiry:
@@ -527,7 +607,7 @@ def place_uvix_put_plus_order(
     opt = Option(
         symbol=underlying.symbol,
         lastTradeDateOrContractMonth=expiry,
-        strike=strike,
+        strike=strike_f,
         right="P",
         exchange="SMART",
         currency="USD",
@@ -541,58 +621,65 @@ def place_uvix_put_plus_order(
     # 1st try: 通常スナップショット（正の価格のみ採用）
     t = ib.reqMktData(opt, "", snapshot=True, regulatorySnapshot=False)
     ib.sleep(0.7)
-    bid = _num(getattr(t, "bid", None))
-    bid = bid if _is_pos(bid) else None
-    ask = _num(getattr(t, "ask", None))
-    ask = ask if _is_pos(ask) else None
-    last = _num(getattr(t, "last", None) or t.marketPrice())
-    last = last if _is_pos(last) else None
+    bid_raw = _num(getattr(t, "bid", None))
+    ask_raw = _num(getattr(t, "ask", None))
+    last_raw = _num(getattr(t, "last", None) or t.marketPrice())
+    bid: Optional[float] = bid_raw if _is_pos(bid_raw) else None
+    ask: Optional[float] = ask_raw if _is_pos(ask_raw) else None
+    last: Optional[float] = last_raw if _is_pos(last_raw) else None
     # 2nd try: NBBO 単発（USE_REG_SNAPSHOT=1 のとき）
     if not (bid or ask or last) and USE_REG_SNAPSHOT:
         t = ib.reqMktData(opt, "", snapshot=True, regulatorySnapshot=True)
         ib.sleep(0.7)
-        b2 = _num(getattr(t, "bid", None))
-        b2 = b2 if _is_pos(b2) else None
-        a2 = _num(getattr(t, "ask", None))
-        a2 = a2 if _is_pos(a2) else None
-        l2 = _num(getattr(t, "last", None) or t.marketPrice())
-        l2 = l2 if _is_pos(l2) else None
+        b2_raw = _num(getattr(t, "bid", None))
+        a2_raw = _num(getattr(t, "ask", None))
+        l2_raw = _num(getattr(t, "last", None) or t.marketPrice())
+        b2 = b2_raw if _is_pos(b2_raw) else None
+        a2 = a2_raw if _is_pos(a2_raw) else None
+        l2 = l2_raw if _is_pos(l2_raw) else None
         bid = bid or b2
         ask = ask or a2
         last = last or l2
 
     # MID を計算（正値のみ）
-    mid = None
-    if _is_pos(bid) and _is_pos(ask):
+    mid: Optional[float] = None
+    if isinstance(bid, float) and isinstance(ask, float):
         mid = round((bid + ask) / 2.0, 2)
-    elif _is_pos(last):
+    elif isinstance(last, float):
         mid = round(last, 2)
 
     # Buy は ASK を最優先（約定性重視）。次に MID-改善、BID、LAST の順。
-    if _is_pos(ask):
-        limit = float(ask)
-    elif _is_pos(mid):
-        limit = round(mid - float(price_improve), 2)
-        if _is_pos(bid):
-            limit = max(limit, float(bid))  # 下限をBIDにクランプ
-    elif _is_pos(bid):
-        limit = float(bid)
-    elif _is_pos(last):
-        limit = float(last)
+    limit_opt: Optional[float] = None
+    if isinstance(ask, float):
+        limit_opt = ask
+    elif isinstance(mid, float):
+        mid_f = cast(float, mid)
+        pi_f = float(price_improve)
+        lim_tmp = round(mid_f - pi_f, 2)
+        if isinstance(bid, float):
+            lim_tmp = max(lim_tmp, bid)  # 下限をBIDにクランプ
+        limit_opt = lim_tmp
+    elif isinstance(bid, float):
+        limit_opt = bid
+    elif isinstance(last, float):
+        limit_opt = last
     else:
         raise RuntimeError("オプション価格が取得できません（板/購読権限をご確認ください）。")
 
-    # 最低プレミアムの下限を適用（0.01暴走防止）
-    if not _is_pos(limit) or float(limit) < float(min_premium):
-        raise RuntimeError(f"算出指値 {limit:.2f} が最低プレミアム {min_premium:.2f} 未満のため中止しました。")
+    # ここで float に確定し、正の値＆最低プレミアムを保証
+    limit_v: float = ensure_positive("limit", require_float("limit", limit_opt))
+    if limit_v < float(min_premium):
+        raise RuntimeError(
+            f"算出指値 {limit_v:.2f} が最低プレミアム {float(min_premium):.2f} 未満のため中止しました。"
+        )
 
     # 口数（枚数）= 予算 / (指値 × 100)
-    qty = int(max(1, budget // (limit * 100.0)))
+    qty = int(max(1, budget // (limit_v * 100.0)))
     if qty > int(max_contracts):
         qty = int(max_contracts)
 
     # 親注文（LMT BUY、STOPなし）
-    parent = LimitOrder("BUY", qty, limit, tif=tif, account=account)
+    parent = LimitOrder("BUY", qty, limit_v, tif=tif, account=account)
     parent.transmit = True
 
     if dry_run:
@@ -600,26 +687,121 @@ def place_uvix_put_plus_order(
             "dry_run": True,
             "underlying_mark": mark,
             "expiry": expiry,
-            "strike": strike,
+            "strike": strike_f,
             "right": "P",
-            "limit": limit,
+            "limit": limit_v,
             "qty": qty,
             "tif": tif,
             "account": account,
             "opt_contract": {"symbol": opt.symbol, "expiry": opt.lastTradeDateOrContractMonth, "strike": opt.strike, "right": opt.right},
+            # DryRun 要約に板も返す
+            "bid": bid, "ask": ask, "mid": mid,
         }
 
-    tr = ib.placeOrder(opt, parent)
+    # ===== ここから LIVE 時の自動 price_improve（attempt 0..max_improve_ticks）=====
+    tick = _get_option_min_tick(ib, opt)
+    trade = ib.placeOrder(opt, parent)
+    ib.sleep(0.1)
+
+    attempt = 0
+    # 以後の演算で Optional を避ける
+    last_limit: float = limit_v
+    while attempt < int(max_improve_ticks):
+        # Filled か Cancel なら終了
+        status = (trade.orderStatus.status or "").capitalize()
+        if status in ("Filled", "ApiCancelled"):
+            break
+        ib.sleep(float(improve_wait_sec))
+        status = (trade.orderStatus.status or "").capitalize()
+        if status in ("Filled", "ApiCancelled"):
+            break
+        # 改善：BUY は ASK ベースで tick 上げ、板が無ければ直前指値ベース
+        attempt += 1
+        base: float = float(ask) if isinstance(ask, float) else last_limit
+        new_limit = round(base + attempt * float(tick), 2)
+        log.info("[IMPROVE] attempt=%d tick=%.4f last=%.2f → new_limit=%.2f", attempt, tick, last_limit, new_limit)
+        ib.cancelOrder(trade.order)
+        ib.sleep(0.3)
+        parent = LimitOrder("BUY", qty, new_limit, tif=tif, account=account)
+        parent.transmit = True
+        trade = ib.placeOrder(opt, parent)
+        last_limit = new_limit
+
     return {
         "dry_run": False,
         "underlying_mark": mark,
         "expiry": expiry,
-        "strike": strike,
+        "strike": strike_f,
         "right": "P",
-        "limit": limit,
+        "limit": last_limit,
         "qty": qty,
         "tif": tif,
         "account": account,
-        "orderId": tr.order.orderId,
+        "orderId": trade.order.orderId,
+        "status": trade.orderStatus.status,
+        "improve_attempts": attempt,
+        "tick": tick,
         "opt_contract": {"symbol": opt.symbol, "expiry": opt.lastTradeDateOrContractMonth, "strike": opt.strike, "right": opt.right},
     }
+
+# ======== 追加：PUT+ の事前計画（DryRun専用） ========
+def plan_uvix_put_plus(
+    moneyness_pct: float = 0.15,
+    budget: float = 60000,
+    request_mktdata_type: int = 1,
+    expiry: Optional[str] = None,
+    strike: Optional[float] = None,
+    strike_round: str = "ceil",
+    price_improve: float = 0.01,
+    max_improve_ticks: int = DEFAULT_MAX_IMPROVE_TICKS,
+    improve_wait_sec: float = DEFAULT_IMPROVE_WAIT_SEC,
+    host: Optional[str] = None,
+    port: Optional[int] = None,
+    client_id: Optional[int] = None,
+) -> dict:
+    """実発注せず、place_uvix_put_plus_order の DryRun と同等サマリを返す軽量API。"""
+    return place_uvix_put_plus_order(
+        moneyness_pct=moneyness_pct,
+        budget=budget,
+        tif="DAY",
+        account=None,
+        request_mktdata_type=request_mktdata_type,
+        strike_increment=0.5,
+        price_improve=price_improve,
+        expiry=expiry,
+        strike=strike,
+        strike_round=strike_round,
+        min_premium=None,
+        max_contracts=None,
+        dry_run=True,
+        host=host,
+        port=port,
+        client_id=client_id,
+        max_improve_ticks=max_improve_ticks,
+        improve_wait_sec=improve_wait_sec,
+    )
+
+# ======== 追加：通常 vs 規制スナップショットの比較 ========
+def compare_quote_sources_opt(ib: IB, opt: Contract) -> None:
+    """同一オプションを通常snapとregulatory snapで見積比較し、差分をINFOログに出す。"""
+    def _num2(x):
+        try:
+            return float(x) if x is not None and not math.isnan(float(x)) else None
+        except Exception:
+            return None
+
+    t1 = ib.reqMktData(opt, "", snapshot=True, regulatorySnapshot=False)
+    ib.sleep(0.7)
+    n = dict(bid=_num2(getattr(t1,"bid",None)), ask=_num2(getattr(t1,"ask",None)), last=_num2(getattr(t1,"last",None) or t1.marketPrice()))
+
+    t2 = ib.reqMktData(opt, "", snapshot=True, regulatorySnapshot=True)
+    ib.sleep(0.7)
+    r = dict(bid=_num2(getattr(t2,"bid",None)), ask=_num2(getattr(t2,"ask",None)), last=_num2(getattr(t2,"last",None) or t2.marketPrice()))
+
+    log.info("[QUOTE/normal] %s", n)
+    log.info("[QUOTE/snap  ] %s", r)
+    def _fmt(x): return "None" if x is None else f"{x:.2f}"
+    log.info("[DIFF] bid: %s → %s / ask: %s → %s / last: %s → %s",
+             _fmt(n['bid']), _fmt(r['bid']),
+             _fmt(n['ask']), _fmt(r['ask']),
+             _fmt(n['last']), _fmt(r['last']))
