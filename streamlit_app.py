@@ -14,7 +14,6 @@ if sys.platform.startswith("win"):
     except Exception:
         pass
 import os
-import math
 import logging
 from pathlib import Path
 from datetime import datetime, timedelta, time as dt_time
@@ -55,10 +54,14 @@ except Exception:
 # --- プロジェクト内部（★ ここへ移動） ---
 from src.ib_client import IBClient  # noqa: E402
 from src.utils.logger import get_logger  # noqa: E402
-from src.ib.orders import StockSpec, bracket_buy_with_stop, decide_lmt_stop_take, run_put_long  # noqa: E402
-from src.ib.options import Underlying, pick_option_contract, sell_option  # noqa: E402
+from src.ib.orders import StockSpec, bracket_buy_with_stop, decide_lmt_stop_take  # noqa: E402
+# UVIX P+ は専用ロジックをモジュールごと import（シンボル名違いでも実行時に getattr 可能）
+import src.ib.uvix_p_plus as uvix_p_plus  # noqa: E402  # type: ignore[reportMissingImports]
 from src.config import OrderPolicy  # noqa: E402
 from src.orders.manual_order import place_manual_order  # noqa: E402
+# ★ NUGT/TMF は strategies に移動
+from src.strategies.nugt_cc import run_nugt_cc  # noqa: E402
+from src.strategies.tmf_cc import run_tmf_cc   # noqa: E402
 
 # 自動再描画（community版）。無ければフォールバック定義。
 try:
@@ -121,7 +124,7 @@ if "worker_started" not in st.session_state:
     st.session_state.worker_started = False
 
 def _dispatch_job(job: dict) -> list[str]:
-    """ジョブ種別に応じて既存の同期関数を呼び出す"""
+    """ジョブ種別に応じて戦略関数を呼び出す（NUGT/TMFはstrategies、UVIXはib.orders）"""
     kind = job.get("kind")
     args = job.get("args", {})
     if kind == "NUGT_CC":
@@ -131,8 +134,8 @@ def _dispatch_job(job: dict) -> list[str]:
     if kind == "UVIX_PLAN":
         return run_uvix_put_idea(**args)
     if kind == "UVIX_P_PLUS":
-        # run_put_long は orders.py で追加した「ATM Put BUY」実行関数
-        return run_put_long(**args)
+        # 専用実装（uvix_p_plus）を必ず経由
+        return uvix_p_plus.run_put_long(**args)  # type: ignore[attr-defined]
     raise ValueError(f"Unknown job kind: {kind}")
 
 def _worker(job_q: queue.Queue, res: dict):
@@ -238,213 +241,6 @@ def get_account_snapshot() -> tuple[list[dict[str, object]], list[dict[str, obje
     # Trade/Order どちらでも読めるように吸収
     ord_rows: list[dict[str, object]] = [_order_to_row(o) for o in orders_raw]
     return acct_rows, pos_rows, ord_rows
-
-def run_nugt_cc(budget: float, stop_pct_val: float = 0.06, ref: float | None = None, live: bool = False, **kwargs):
-    ensure_event_loop()           # ← 追加
-    #print(f"[DEBUG] enter run_nugt_cc live={live} budget={budget} stop={stop_pct_val}")
-    orders_log.info(f"[DEBUG] enter run_nugt_cc live={live} budget={budget} stop={stop_pct_val}")
-    # 互換: ref_price/price/entry でも受ける
-    if ref is None:
-        ref = kwargs.get("ref_price") or kwargs.get("price") or kwargs.get("entry")
-    assert ref is not None and ref > 0, "ref price is required"
-    """
-    DRY RUN: 予算いっぱい現物→取得価格の6%下にSTP→ATMコール売り。
-    manual_price があればそれを使用。無ければスナップショット価格を取得。
-    """
-    msgs: list[str] = []
-    cli = get_client()
-    if not cli or not cli.ib:
-        raise RuntimeError("IB 未接続です")
-    ib_conn = cast(IB, cli.ib)
-
-    spec = StockSpec("NUGT", "SMART", "USD")
-    und  = Underlying("NUGT", "SMART", "USD")
-
-    # 価格：手動 > スナップショット
-    px = float(ref)
-    if not math.isfinite(px) or px <= 0:
-        raise RuntimeError(f"NUGT price is invalid: {px}")
-
-    qty_shares = int(budget // px)
-    if qty_shares < 1:
-        raise RuntimeError(f"Budget too small: budget={budget}, price≈{px:.2f}")
-
-    qty_contracts = qty_shares // 100
-    msgs.append(f"price≈{px:.2f}, budget={budget}, shares={qty_shares}, option_contracts={qty_contracts}")
-
-    # 1+2) 親子（ブランケット）：親=指値、子=逆指値（既定ポリシーで自動決定）
-    lmt_price, stop_price, take_profit = decide_lmt_stop_take(
-        px,
-        slippage_bps=POL.slippage_bps,
-        stop_pct=float(stop_pct_val),          # ← ここを“指定値優先”に変更（10%を通せる）
-        take_profit_pct=POL.take_profit_pct,
-    )
-    # --- DRY はここで完結（IB不要） ---
-    if not live:
-        orders_log.info(f"[DRY RUN] STOCK LMT BUY {qty_shares} NUGT @ {lmt_price:.2f}")
-        orders_log.info(f"[DRY RUN] STOCK STP SELL {qty_shares} NUGT @ {stop_price:.2f} (ref={px:.2f})")
-        if take_profit is not None:
-            orders_log.info(f"[DRY RUN] STOCK LMT SELL(TP) {qty_shares} NUGT @ {take_profit:.2f}")
-        # C-（推定）：NUGTは 1.0 刻みを想定し ATM へ四捨五入
-        est_strike = round(px)  # 例: 100.15 → 100
-        orders_log.info(f"[DRY RUN] OPT SELL CALL {qty_contracts} NUGT @{est_strike} (ATM est.)")
-        msgs.append(f"Option (est.): CALL {est_strike} x {qty_contracts} (SELL, DRY)")
-        return msgs
-    else:
-        orders_log.info(
-            f"[LIVE PREVIEW] BUY LMT {qty_shares} @ {lmt_price:.2f} -> "
-            f"STOP {stop_price:.2f}{' -> TP ' + str(take_profit) if take_profit else ''} "
-            f"(ref={px:.2f}, TIF={POL.tif}, outsideRth={POL.outside_rth})"
-        )
-    parent, child, parent_trade = bracket_buy_with_stop(
-        ib=ib_conn,
-        spec=spec,
-        qty=qty_shares,
-        entry_type="LMT",              # ★ 親をLMTに統一
-        lmt_price=lmt_price,           # ★ 自動算出した指値
-        stop_price=stop_price,
-        tif=POL.tif,                   # "DAY" / "GTC" をポリシーで固定
-        outside_rth=POL.outside_rth,   # 立会時間外の約定可否をポリシーで固定
-        dry_run=not live,              # ← UIのLiveトグルで送信可否
-    )
-    # ★ 実発注（Paper/Live）のときだけ親注文のIDをログへ残す
-    if parent_trade is not None:
-        try:
-            orders_log.info(
-                f"[PLACED] orderId={parent_trade.order.orderId} "
-                f"permId={parent_trade.order.permId} "
-                f"parentType={parent_trade.order.orderType}"
-            )
-        except Exception:
-            # ここでのログ失敗は致命ではないので握りつぶす
-            pass
-    msgs.append(
-        f"Bracket: BUY {parent.orderType} {qty_shares} @ {getattr(parent, 'lmtPrice', None)} "
-        f"→ STOP {stop_price:.2f}"
-        + (f" → TP {take_profit:.2f}" if take_profit is not None else "")
-        + f" | TIF={POL.tif} outsideRth={POL.outside_rth}"
-    )
-
-    # 3) Covered Call（親Fill後にSELLする／DRYは即ログ＋仮送信）
-    if qty_contracts >= 1:
-        try:
-            if live and parent_trade is not None:
-                filled = _wait_filled(parent_trade, timeout_sec=180.0)
-                orders_log.info(f"[DEBUG] parent filled? {filled}")
-                if not filled:
-                    msgs.append("親の株BUYが未FillのためCCは見送りました（タイムアウト）")
-                    return msgs
-            opt, strike, expiry = pick_option_contract(
-                ib_conn, und, right="C", pct_offset=0.0, prefer_friday=True, override_price=px
-            )
-
-            sell_option(ib_conn, opt, qty_contracts, dry_run=not live)
-            msgs.append(f"Option: CALL {strike} @ {expiry} x {qty_contracts} (SELL)")
-            orders_log.info(f"[CC] SELL CALL {qty_contracts} {und.symbol} {strike} {expiry} (price=LMT@Bid)")
-
-        except Exception as e:
-            msgs.append(f"Option SELL failed: {e}")
-            orders_log.error(f"[CC ERROR] {type(e).__name__}: {e}")
-    else:
-        msgs.append("株数が100未満のためオプション売りはスキップ")
-
-    return msgs
-
-def run_tmf_cc(budget: float, stop_pct_val: float, ref: float, live: bool = False) -> list[str]:
-    """
-    TMF: 予算いっぱいで現物→取得価格の7%下にSTP→ATM(5刻み切り上げ)コール売り
-    """
-    ensure_event_loop()           # ← 追加
-    orders_log.info(f"[DEBUG] run_tmf_cc live={live} budget={budget} stop={stop_pct_val}")
-    assert ref and ref > 0, "ref price is required"
-
-    cli = get_client()
-    if not cli or not cli.ib:
-        raise RuntimeError("IB 未接続です")
-    ib_conn = cast(IB, cli.ib)
-
-    spec = StockSpec("TMF", "SMART", "USD")
-    und  = Underlying("TMF", "SMART", "USD")
-
-    px = float(ref)
-    if not math.isfinite(px) or px <= 0:
-        raise RuntimeError(f"TMF price is invalid: {px}")
-
-    qty_shares = int(budget // px)
-    if qty_shares < 1:
-        raise RuntimeError(f"Budget too small: budget={budget}, price≈{px:.2f}")
-    qty_contracts = qty_shares // 100
-
-    # LMT/STOP/TP（STOPは指定値優先=7%）
-    lmt_price, stop_price, take_profit = decide_lmt_stop_take(
-        px,
-        slippage_bps=POL.slippage_bps,
-        stop_pct=float(stop_pct_val),
-        take_profit_pct=POL.take_profit_pct,
-    )
-
-    # 送信（DRY/LIVE）
-    if not live:
-        orders_log.info(f"[DRY RUN] TMF LMT BUY {qty_shares} @ {lmt_price:.2f}")
-        orders_log.info(f"[DRY RUN] TMF STP SELL {qty_shares} @ {stop_price:.2f} (ref={px:.2f})")
-        if take_profit is not None:
-            orders_log.info(f"[DRY RUN] TMF LMT SELL(TP) {qty_shares} @ {take_profit:.2f}")
-
-    parent, child, parent_trade = bracket_buy_with_stop(
-        ib=ib_conn,
-        spec=spec,
-        qty=qty_shares,
-        entry_type="LMT",
-        lmt_price=lmt_price,
-        stop_price=stop_price,
-        tif=POL.tif,
-        outside_rth=POL.outside_rth,
-        dry_run=not live,
-    )
-    if parent_trade is not None:
-        try:
-            orders_log.info(
-                f"[PLACED] orderId={parent_trade.order.orderId} "
-                f"permId={parent_trade.order.permId} parentType={parent_trade.order.orderType}"
-            )
-        except Exception:
-            pass
-
-    msgs = [
-        f"TMF: price≈{px:.2f}, budget={budget}, shares={qty_shares}, option_contracts={qty_contracts}",
-        f"Bracket: BUY {parent.orderType} {qty_shares} @ {getattr(parent, 'lmtPrice', None)} "
-        f"→ STOP {stop_price:.2f}" + (f" → TP {take_profit:.2f}" if take_profit is not None else "") +
-        f" | TIF={POL.tif} outsideRth={POL.outside_rth}"
-    ]
-
-    # Covered Call（親Fill後にSELL）＋ “5刻み切り上げ”方針ログ
-    if qty_contracts >= 1:
-        try:
-            if live and parent_trade is not None:
-                filled = _wait_filled(parent_trade, timeout_sec=180.0)
-                orders_log.info(f"[DEBUG] parent filled? {filled}")
-                if not filled:
-                    msgs.append("親の株BUYが未FillのためCCは見送りました（タイムアウト）")
-                    return msgs
-            rounded = math.ceil(px / 5.0) * 5.0
-            opt, strike, expiry = pick_option_contract(
-                ib_conn, und, right="C", pct_offset=0.0, prefer_friday=True, override_price=px
-            )
-            if float(strike) != float(rounded):
-                orders_log.info(f"[NOTICE] TMF CC policy: ceil_to_5={rounded:.0f}, picked={strike}")
-            if not live:
-                orders_log.info(f"[DRY RUN] OPT SELL CALL {qty_contracts} {und.symbol} @{strike} {expiry} (target≈{rounded:.0f})")
-            sell_option(ib_conn, opt, qty_contracts, dry_run=not live)
-            msgs.append(f"Option: CALL target≈{rounded:.0f} (picked {strike}) @ {expiry} x {qty_contracts} (SELL)")
-            if live:
-                orders_log.info(f"[CC] SELL CALL {qty_contracts} {und.symbol} {strike} {expiry}")
-        except Exception as e:
-            msgs.append(f"Option SELL failed: {e}")
-            orders_log.error(f"[CC ERROR] {type(e).__name__}: {e}")
-    else:
-        msgs.append("株数が100未満のためオプション売りはスキップ")
-
-    return msgs
 
 
 def run_etf_buy_with_stop(symbol: str, budget: float, ref: float, live: bool = False) -> list[str]:
@@ -846,7 +642,7 @@ with st.container(border=True):
                             cli_live = get_client()
                             if not cli_live or not cli_live.ib:
                                 raise RuntimeError("IB 未接続です")
-                            msgs = run_put_long(
+                            msgs = uvix_p_plus.run_put_long(  # type: ignore[attr-defined]
                                 ib=cast(IB, cli_live.ib),
                                 symbol="UVIX",
                                 contracts=int(contracts_uvix),
