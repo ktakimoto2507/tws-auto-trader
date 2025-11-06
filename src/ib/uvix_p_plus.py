@@ -231,10 +231,13 @@ def get_uvix_p_plus_state(
     if not connected:
         return state
 
-    try:
-        ib.reqMarketDataType(request_mktdata_type)
-    except Exception:
-        pass
+    # Live→Delayed 自動フォールバック（10089/10091系）
+    def _set_md(md: int) -> None:
+        try:
+            ib.reqMarketDataType(md)
+        except Exception:
+            pass
+    _set_md(request_mktdata_type)
 
     # --- Contract 解決（conId優先、BATSならARCA/NYSE/NASDAQを優先試行）
     def _q(c):
@@ -555,6 +558,15 @@ def place_uvix_put_plus_order(
     max_improve_ticks: int = DEFAULT_MAX_IMPROVE_TICKS,
     improve_wait_sec: float = DEFAULT_IMPROVE_WAIT_SEC,
 ) -> dict:
+    
+    # マーケットデータ種別（Live→Delayed フォールバック用の小関数）
+    def _set_md(md: int) -> None:
+        try:
+            ib.reqMarketDataType(md)
+        except Exception:
+            pass
+    _set_md(request_mktdata_type)
+
     """
     1) 基礎価格（UVIX現物の mark）を取得
     2) 目標ストライク = mark * (1 + moneyness_pct) を刻みに丸め
@@ -582,11 +594,7 @@ def place_uvix_put_plus_order(
     ib = _ensure_connection(host, port, client_id)
     underlying = _qualify_uvix_contract(ib, conid)
 
-    # マーケットデータ種別
-    try:
-        ib.reqMarketDataType(request_mktdata_type)
-    except Exception:
-        pass
+
 
     # 基礎価格（現値）: float 確定
     mark: float = _mark_price_for_entry(ib, underlying, request_mktdata_type=request_mktdata_type)
@@ -644,28 +652,69 @@ def place_uvix_put_plus_order(
     except Exception as e:
         raise RuntimeError(f"オプション契約の解決に失敗: {e}")
 
-    # 1st try: 通常スナップショット（正の価格のみ採用）
-    t = ib.reqMktData(opt, "", snapshot=True, regulatorySnapshot=False)
-    ib.sleep(0.7)
-    bid_raw = _num(getattr(t, "bid", None))
-    ask_raw = _num(getattr(t, "ask", None))
-    last_raw = _num(getattr(t, "last", None) or t.marketPrice())
-    bid: Optional[float] = bid_raw if _is_pos(bid_raw) else None
-    ask: Optional[float] = ask_raw if _is_pos(ask_raw) else None
-    last: Optional[float] = last_raw if _is_pos(last_raw) else None
-    # 2nd try: NBBO 単発（USE_REG_SNAPSHOT=1 のとき）
-    if not (bid or ask or last) and USE_REG_SNAPSHOT:
-        t = ib.reqMktData(opt, "", snapshot=True, regulatorySnapshot=True)
-        ib.sleep(0.7)
-        b2_raw = _num(getattr(t, "bid", None))
-        a2_raw = _num(getattr(t, "ask", None))
-        l2_raw = _num(getattr(t, "last", None) or t.marketPrice())
-        b2 = b2_raw if _is_pos(b2_raw) else None
-        a2 = a2_raw if _is_pos(a2_raw) else None
-        l2 = l2_raw if _is_pos(l2_raw) else None
-        bid = bid or b2
-        ask = ask or a2
-        last = last or l2
+    def _opt_snap(reg: bool = False, wait: float = 0.7):
+        t = ib.reqMktData(opt, "", snapshot=True, regulatorySnapshot=reg)
+        ib.sleep(wait)
+        return t
+
+    def _opt_num_pos(x):
+        try:
+            v = float(x) if x is not None else None
+            return v if (v is not None and v > 0) else None
+        except Exception:
+            return None
+
+    # === 見積り取得ユーティリティ ===
+    def _snap(reg: bool, wait: float = 0.7):
+        t = ib.reqMktData(opt, "", snapshot=True, regulatorySnapshot=reg)
+        ib.sleep(wait)
+        return t
+
+    def _num_pos(x):
+        try:
+            v = float(x) if x is not None else None
+            return v if (v is not None and math.isfinite(v) and v > 0.0) else None
+        except Exception:
+            return None
+
+    # 1st: 現在のmdで通常snap
+    bid = ask = last = None
+    try:
+        t = _opt_snap(reg=False)
+        bid = _opt_num_pos(getattr(t,"bid",None))
+        ask = _opt_num_pos(getattr(t,"ask",None))
+        last = _opt_num_pos(getattr(t,"last",None) or t.marketPrice())
+    except Exception:
+        pass
+
+    # 2nd: 規制snap（NBBO）
+    if not (bid or ask or last):
+        try:
+            t = _opt_snap(reg=True)
+            bid = bid or _opt_num_pos(getattr(t,"bid",None))
+            ask = ask or _opt_num_pos(getattr(t,"ask",None))
+            last = last or _opt_num_pos(getattr(t,"last",None) or t.marketPrice())
+        except Exception:
+            pass
+
+    # 3rd: Live/Frozen 指定で空 → Delayed(3)へフォールバック（通常→規制）
+    if request_mktdata_type in (1, 2) and not (bid or ask or last):
+        _set_md(3)
+        try:
+            t = _opt_snap(reg=False)
+            bid = bid or _opt_num_pos(getattr(t,"bid",None))
+            ask = ask or _opt_num_pos(getattr(t,"ask",None))
+            last = last or _opt_num_pos(getattr(t,"last",None) or t.marketPrice())
+        except Exception:
+            pass
+        if not (bid or ask or last):
+            try:
+                t = _opt_snap(reg=True)
+                bid = bid or _opt_num_pos(getattr(t,"bid",None))
+                ask = ask or _opt_num_pos(getattr(t,"ask",None))
+                last = last or _opt_num_pos(getattr(t,"last",None) or t.marketPrice())
+            except Exception:
+                pass
 
     # MID を計算（正値のみ）
     mid: Optional[float] = None
@@ -676,8 +725,10 @@ def place_uvix_put_plus_order(
 
     # Buy は ASK を最優先（約定性重視）。次に MID-改善、BID、LAST の順。
     limit_opt: Optional[float] = None
+    chosen_source = "unknown"
     if isinstance(ask, float):
         limit_opt = ask
+        chosen_source = "ask"
     elif isinstance(mid, float):
         mid_f = cast(float, mid)
         pi_f = float(price_improve)
@@ -685,12 +736,17 @@ def place_uvix_put_plus_order(
         if isinstance(bid, float):
             lim_tmp = max(lim_tmp, bid)  # 下限をBIDにクランプ
         limit_opt = lim_tmp
+        chosen_source = "mid"
     elif isinstance(bid, float):
         limit_opt = bid
+        chosen_source = "bid"
     elif isinstance(last, float):
         limit_opt = last
+        chosen_source = "last"
     else:
-        raise RuntimeError("オプション価格が取得できません（板/購読権限をご確認ください）。")
+        # ここまでで取得できなければ DRY 継続のため最小限の数値を返す
+        limit_opt = float(min_premium)
+        chosen_source = "min_premium_fallback"
 
     # ここで float に確定し、正の値＆最低プレミアムを保証
     limit_v: float = ensure_positive("limit", require_float("limit", limit_opt))
@@ -721,7 +777,7 @@ def place_uvix_put_plus_order(
             "account": account,
             "opt_contract": {"symbol": opt.symbol, "expiry": opt.lastTradeDateOrContractMonth, "strike": opt.strike, "right": opt.right},
             # DryRun 要約に板も返す
-            "bid": bid, "ask": ask, "mid": mid,
+            "bid": bid, "ask": ask, "mid": mid, "limit_source": chosen_source,
         }
 
     # ===== ここから LIVE 時の自動 price_improve（attempt 0..max_improve_ticks）=====
