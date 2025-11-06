@@ -17,6 +17,15 @@ import math
 import os
 import uuid
 
+# 気配の中心値（両方finiteのときだけ平均。ダメなら NaN を返す）
+def _mid(bid: float | None, ask: float | None) -> float:
+    if bid is None or ask is None:
+        return float("nan")
+    try:
+        m = 0.5 * (bid + ask)
+        return m if math.isfinite(m) else float("nan")
+    except Exception:
+        return float("nan")
 
 def first_finite(*vals: Optional[float]) -> Optional[float]:
     for v in vals:
@@ -266,15 +275,19 @@ def get_uvix_p_plus_state(
     except Exception as e:
         log.exception("positions() の取得に失敗: %s", e)
 
-    # --- 最新価格（Ticker）: フォールバックで取得、板購読なしの警告は黙殺
+    # --- 最新価格（Ticker）: フォールバックで取得、板購読不足（10089等）は黙殺
     try:
-        def _squelch_errors(err):
-            if getattr(err, "code", None) in (10089, 10090, 10091, 10167, 354):
-                return  # 板購読系の注意は無視
-            log.warning("IB error %s: %s", getattr(err, "code", "?"), getattr(err, "errorMsg", err))
+        def _squelch_errors(reqId: int, code: int, msg: str, advanced: str | None = None):
+            # 10089 系（購読不足）や板関連の注意は検証時は無視
+            if code in (10089, 10090, 10091, 10167, 354):
+                log.info("[MD] ignore %s reqId=%s msg=%s", code, reqId, msg)
+                return
+            log.warning("[MD] %s reqId=%s msg=%s", code, reqId, msg)
         ib.errorEvent += _squelch_errors
         try:
-            state.last, state.bid, state.ask, state.close = _fetch_mark_prices(ib, contract, wait_sec=mktdata_wait_sec)
+            state.last, state.bid, state.ask, state.close = _fetch_mark_prices(
+                ib, contract, wait_sec=mktdata_wait_sec
+            )
         finally:
             ib.errorEvent -= _squelch_errors
     except Exception as e:
@@ -315,7 +328,16 @@ def _ensure_connection(host: str | None, port: int | None, client_id: int | None
     port_i: int = int(port_s)
     client_i: int = int(client_s)
     if not ib.isConnected():
-        ib.connect(host_s, port_i, clientId=client_i, timeout=5)
+        # 326(clientId使用中) / Timeout 対策：clientId をずらして最大3回まで試行
+        attempts = 0
+        cid = client_i
+        while attempts < 3 and not ib.isConnected():
+            try:
+                ib.connect(host_s, port_i, clientId=cid, timeout=5)
+            except Exception:
+                attempts = 1
+                cid = 1  # 次の候補へ
+                continue
     return ib
 
 def _qualify_uvix_contract(ib: IB, conid: int) -> Contract:
@@ -342,14 +364,18 @@ def _mark_price_for_entry(ib: IB, contract: Contract, request_mktdata_type: int 
     except Exception:
         pass
     last, bid, ask, close = _fetch_mark_prices(ib, contract, wait_sec=0.7)
-    # 発注用の“マーク”は、ask→last→close→bid の順で選択（Optional排除してfloat確定）
-    mark = first_finite(ask, last, close, bid)
+    # 発注用“mark”は、まず気配中心（_mid）が取れれば最優先。無ければ TRADES(=last) → close → ask/bid
+    mark = first_finite(_mid(bid, ask), last, close, ask, bid)
     return require_float("UVIXの価格", mark)
 
 def _calc_limit_from_mark(mark: float, side: str, bps: int) -> float:
     # BUY指値は mark に上乗せ、SELL指値は下乗せ（今回はBUYのみ）
     if side.upper() == "BUY":
-        return round(mark * (1 + bps / 10000.0), 2)
+        raw = mark * (1 + bps / 10000.0)
+        lim = round(raw, 2)
+        if lim <= mark:
+            lim = round(mark + 0.01, 2)  # 最低1セントは上に
+        return lim
     return round(mark * (1 - bps / 10000.0), 2)
 
 def place_uvix_p_plus_order(
