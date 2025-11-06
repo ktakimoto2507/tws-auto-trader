@@ -44,22 +44,18 @@ except RuntimeError:
     asyncio.set_event_loop(loop)
 # 補助：自前のヘルパでもOK（どちらか片方で十分）
 ensure_event_loop()
+from ib_insync import util, Trade, IB  # noqa: E402
+from typing import cast, Any, Sequence  # noqa: E402  ← 追記（IB/Trade への型確定に使用）
 
-from ib_insync import Index, util, Trade  # noqa: E402
 try:
     # Streamlitの外部スレッドでも安全に動かす（ログ/状態アクセスの警告抑止）
     from streamlit.runtime.scriptrunner import add_script_run_ctx
 except Exception:
     add_script_run_ctx = None
 # --- プロジェクト内部（★ ここへ移動） ---
-from src.ib_client import IBClient, make_etf  # noqa: E402
+from src.ib_client import IBClient  # noqa: E402
 from src.utils.logger import get_logger  # noqa: E402
-from src.ib.orders import (  # noqa: E402
-    StockSpec,
-    bracket_buy_with_stop,
-    decide_lmt_stop_take,
-    run_put_long,
-)
+from src.ib.orders import StockSpec, bracket_buy_with_stop, decide_lmt_stop_take, run_put_long  # noqa: E402
 from src.ib.options import Underlying, pick_option_contract, sell_option  # noqa: E402
 from src.config import OrderPolicy  # noqa: E402
 from src.orders.manual_order import place_manual_order  # noqa: E402
@@ -79,68 +75,20 @@ def _wait_filled(trade: Trade, timeout_sec: float = 120.0) -> bool:
     """
     try:
         start = pytime.time()
+        # Trade.ib は型定義上 Optional 扱いになりやすいので安全に取得
+        ib = getattr(trade, "ib", None)
+        if ib is None:
+            return False
         while pytime.time() - start < timeout_sec:
             s = (trade.orderStatus.status or "").lower()
             if s == "filled":
                 return True
             if s in {"cancelled", "inactive", "api cancelled"}:
                 return False
-            util.run(trade.ib.sleep(0.5))
+            util.run(ib.sleep(0.5))
         return False
     except Exception:
         return False
-    
-def _resolve_last_then_close(t) -> float | None:
-    """TWSウォッチリストの『直近』風: last があればそれ、無ければ close。"""
-    for v in (getattr(t, "last", None), getattr(t, "close", None)):
-        if isinstance(v, (int, float)) and math.isfinite(v) and v > 0:
-            return float(v)
-    return None
-
-
-def fetch_prices_tws_like(ib, symbols: list[str], delay_type: int = 3, timeout: float = 2.0) -> dict[str, float | None]:
-    """
-    last→close の順で採用。snapshot=True -> 短時間待ち。
-    delay_type: 1=RT, 2=Frozen, 3=Delayed, 4=DelayedFrozen
-    """
-    ensure_event_loop()
-    try:
-        ib.reqMarketDataType(int(delay_type))
-    except Exception:
-        pass
-
-    contracts = []
-    for s in symbols:
-        if s.upper() == "VIX":
-            c = Index("VIX", "CBOE", "USD")
-        else:
-            # UVIXはBATS上場のため、contract同定を助ける
-            if s.upper() == "UVIX":
-                c = make_etf("UVIX")  # ← ib_client側のEX_OVERRIDEでBATSヒントが効く
-            else:
-                c = make_etf(s)
-        # qualify は失敗しても後段で拾えるように best-effort
-        try:
-            ib.qualifyContracts(c)
-        except Exception:
-            pass
-        contracts.append((s, c))
-
-    # snapshot でreq、少し待って読む
-    tickers = {}
-    for s, c in contracts:
-        try:
-            t = ib.reqMktData(c, "", True, False)  # snapshot=True
-            util.run(ib.sleep(timeout))
-            tickers[s] = t
-            ib.cancelMktData(c)
-        except Exception:
-            tickers[s] = None
-
-    prices = {}
-    for s, t in tickers.items():
-        prices[s] = _resolve_last_then_close(t) if t else None
-    return prices
 
 # --- logging bootstrap (診断用) ---
 if not logging.getLogger().handlers:
@@ -249,21 +197,46 @@ def tail_log(path: Path, n: int = 200) -> str:
     except Exception as e:
         return f"(ログ読み込み失敗: {e})"
 
-def get_account_snapshot():
-    cli = get_client()  # ← 再利用
+def _order_to_row(o: Any) -> dict[str, object]:
+    """
+    ib_insync の open orders が返す要素が Trade でも Order でも安全に拾う。
+    - Trade: .contract / .order を持つ
+    - Order: .order は無いので自分自身を order 相当として扱う（symbolは空に）
+    """
+    contract = getattr(o, "contract", None)
+    order_obj = getattr(o, "order", o)  # Order の場合は self を使う
+    symbol = getattr(contract, "symbol", "")
+    action = getattr(order_obj, "action", None)
+    qty = getattr(order_obj, "totalQuantity", None)
+    otype = getattr(order_obj, "orderType", None)
+    lmt = getattr(order_obj, "lmtPrice", None)
+    aux = getattr(order_obj, "auxPrice", None)
+    return {
+        "symbol": symbol or "",
+        "action": action,
+        "qty": qty,
+        "type": otype,
+        "lmtPrice": lmt,
+        "auxPrice": aux,
+    }
+
+
+def get_account_snapshot() -> tuple[list[dict[str, object]], list[dict[str, object]], list[dict[str, object]]]:
+    cli = get_client()
+    if not cli:
+        return [], [], []
     summary = cli.fetch_account_summary()
     positions = cli.fetch_positions()
-    orders = cli.fetch_open_orders()
-    acct_rows = [{"tag": x.tag, "value": x.value, "currency": x.currency or ""} for x in summary]
-    pos_rows = [{"symbol": p.contract.symbol, "position": p.position, "avgCost": p.avgCost} for p in positions]
-    ord_rows = [{
-        "symbol": o.contract.symbol,
-        "action": o.order.action,
-        "qty": o.order.totalQuantity,
-        "type": o.order.orderType,
-        "lmtPrice": getattr(o.order, "lmtPrice", None),
-        "auxPrice": getattr(o.order, "auxPrice", None)
-    } for o in orders]
+    orders_raw: Sequence[Any] = cli.fetch_open_orders()  # List[Order] 相当
+
+    acct_rows: list[dict[str, object]] = [
+        {"tag": x.tag, "value": x.value, "currency": x.currency or ""} for x in summary
+    ]
+    pos_rows: list[dict[str, object]] = [
+        {"symbol": p.contract.symbol, "position": p.position, "avgCost": p.avgCost} for p in positions
+    ]
+    # Trade/Order どちらでも読めるように吸収
+    ord_rows: list[dict[str, object]] = [_order_to_row(o) for o in orders_raw]
     return acct_rows, pos_rows, ord_rows
 
 def run_nugt_cc(budget: float, stop_pct_val: float = 0.06, ref: float | None = None, live: bool = False, **kwargs):
@@ -280,6 +253,9 @@ def run_nugt_cc(budget: float, stop_pct_val: float = 0.06, ref: float | None = N
     """
     msgs: list[str] = []
     cli = get_client()
+    if not cli or not cli.ib:
+        raise RuntimeError("IB 未接続です")
+    ib_conn = cast(IB, cli.ib)
 
     spec = StockSpec("NUGT", "SMART", "USD")
     und  = Underlying("NUGT", "SMART", "USD")
@@ -321,7 +297,7 @@ def run_nugt_cc(budget: float, stop_pct_val: float = 0.06, ref: float | None = N
             f"(ref={px:.2f}, TIF={POL.tif}, outsideRth={POL.outside_rth})"
         )
     parent, child, parent_trade = bracket_buy_with_stop(
-        ib=cli.ib,
+        ib=ib_conn,
         spec=spec,
         qty=qty_shares,
         entry_type="LMT",              # ★ 親をLMTに統一
@@ -359,10 +335,10 @@ def run_nugt_cc(budget: float, stop_pct_val: float = 0.06, ref: float | None = N
                     msgs.append("親の株BUYが未FillのためCCは見送りました（タイムアウト）")
                     return msgs
             opt, strike, expiry = pick_option_contract(
-                cli.ib, und, right="C", pct_offset=0.0, prefer_friday=True, override_price=px
+                ib_conn, und, right="C", pct_offset=0.0, prefer_friday=True, override_price=px
             )
 
-            sell_option(cli.ib, opt, qty_contracts, dry_run=not live)
+            sell_option(ib_conn, opt, qty_contracts, dry_run=not live)
             msgs.append(f"Option: CALL {strike} @ {expiry} x {qty_contracts} (SELL)")
             orders_log.info(f"[CC] SELL CALL {qty_contracts} {und.symbol} {strike} {expiry} (price=LMT@Bid)")
 
@@ -383,8 +359,9 @@ def run_tmf_cc(budget: float, stop_pct_val: float, ref: float, live: bool = Fals
     assert ref and ref > 0, "ref price is required"
 
     cli = get_client()
-    if not cli:
+    if not cli or not cli.ib:
         raise RuntimeError("IB 未接続です")
+    ib_conn = cast(IB, cli.ib)
 
     spec = StockSpec("TMF", "SMART", "USD")
     und  = Underlying("TMF", "SMART", "USD")
@@ -414,7 +391,7 @@ def run_tmf_cc(budget: float, stop_pct_val: float, ref: float, live: bool = Fals
             orders_log.info(f"[DRY RUN] TMF LMT SELL(TP) {qty_shares} @ {take_profit:.2f}")
 
     parent, child, parent_trade = bracket_buy_with_stop(
-        ib=cli.ib,
+        ib=ib_conn,
         spec=spec,
         qty=qty_shares,
         entry_type="LMT",
@@ -451,13 +428,13 @@ def run_tmf_cc(budget: float, stop_pct_val: float, ref: float, live: bool = Fals
                     return msgs
             rounded = math.ceil(px / 5.0) * 5.0
             opt, strike, expiry = pick_option_contract(
-                cli.ib, und, right="C", pct_offset=0.0, prefer_friday=True, override_price=px
+                ib_conn, und, right="C", pct_offset=0.0, prefer_friday=True, override_price=px
             )
             if float(strike) != float(rounded):
                 orders_log.info(f"[NOTICE] TMF CC policy: ceil_to_5={rounded:.0f}, picked={strike}")
             if not live:
                 orders_log.info(f"[DRY RUN] OPT SELL CALL {qty_contracts} {und.symbol} @{strike} {expiry} (target≈{rounded:.0f})")
-            sell_option(cli.ib, opt, qty_contracts, dry_run=not live)
+            sell_option(ib_conn, opt, qty_contracts, dry_run=not live)
             msgs.append(f"Option: CALL target≈{rounded:.0f} (picked {strike}) @ {expiry} x {qty_contracts} (SELL)")
             if live:
                 orders_log.info(f"[CC] SELL CALL {qty_contracts} {und.symbol} {strike} {expiry}")
@@ -482,8 +459,9 @@ def run_etf_buy_with_stop(symbol: str, budget: float, ref: float, live: bool = F
         raise RuntimeError("決定価格(ref)が不正です")
 
     cli = get_client()
-    if not cli:
+    if not cli or not cli.ib:
         raise RuntimeError("IB 未接続です")
+    ib_conn = cast(IB, cli.ib)
 
     spec = StockSpec(symbol, "SMART", "USD")
     px = float(ref)
@@ -508,7 +486,7 @@ def run_etf_buy_with_stop(symbol: str, budget: float, ref: float, live: bool = F
             orders_log.info(f"[DRY RUN] {symbol} LMT SELL(TP) {qty_shares} @ {take_profit:.2f}")
 
     parent, child, parent_trade = bracket_buy_with_stop(
-        ib=cli.ib,
+        ib=ib_conn,
         spec=spec,
         qty=qty_shares,
         entry_type="LMT",
@@ -604,25 +582,26 @@ if colA.button("Connect"):
     if curr and curr.ib and curr.ib.isConnected():
         st.info("すでに接続済みです。")
     else:
-        cfg = type("Tmp", (), {"host": host, "port": int(port), "client_id": int(client_id), "account": None})
+        from src.ib_client import IBConfig  # noqa: E402 (再掲でもOK)
+        cfg = IBConfig(host=str(host), port=int(port), client_id=int(client_id), account=None)
         cli = IBClient(cfg)
         try:
             ensure_event_loop()                           # ← 追加
             cli.connect(market_data_type=int(md_type))
             st.session_state["ib_client"] = cli
             # ★ 一度だけ IB の errorEvent をフックして、TWS 側の拒否も必ずログ化
-            if not st.session_state.get("_ib_error_hooked"):
+            if not st.session_state.get("_ib_error_hooked") and cli.ib is not None:
                 def _on_ib_error(reqId, code, msg, **kw):
                     orders_log.error("[IB ERROR] reqId=%s code=%s msg=%s extra=%s", reqId, code, msg, kw)
                 try:
-                    cli.ib.errorEvent += _on_ib_error
+                    cli.ib.errorEvent += _on_ib_error  # type: ignore[reportAttributeAccessIssue]
                     st.session_state["_ib_error_hooked"] = True
                     orders_log.info("[HOOK] IB errorEvent hooked")
                 except Exception as e:
                     orders_log.error(f"[HOOK ERROR] failed to hook errorEvent: {e}")
             # --- 環境バナー＆口座検証（ここなら cli が存在） ---
             env = os.getenv("RUN_MODE", "paper")
-            accts = cli.ib.managedAccounts() or []
+            accts = (cli.ib.managedAccounts() if cli.ib is not None else []) or []
             acct_hint = ", ".join(accts) if accts else "(unknown)"
             is_paper = any(a.startswith("DU") for a in accts)  # IBKR: Paper=DUxxxxx
             st.success(f"Connected – Accounts: {acct_hint} | RUN_MODE={env}")
@@ -678,7 +657,7 @@ with st.container(border=True):
         with st.form("form_nugt", clear_on_submit=False):
             budget_nugt = st.number_input("Budget (USD)", min_value=0.0, value=float(os.getenv("BUDGET_NUGT", "600000")), step=1000.0, key="budget_nugt_main")
             manual_price_nugt = st.number_input("Manual price", min_value=0.0, value=100.0, step=0.01, key="manual_price_nugt_main")
-            use_manual_nugt = st.checkbox("Use manual price", value=False, key="use_manual_nugt_main")
+            use_manual_nugt = st.checkbox("Use manual price", value=True, key="use_manual_nugt_main")
             stop_nugt = st.number_input("Stop %", min_value=0.0, value=float(st.session_state.get("stop_pct_nugt", 0.10)), step=0.01, format="%.2f", key="stop_nugt_main")
             submit_nugt = st.form_submit_button("▶ NUGT CoveredCall", use_container_width=True)
 
@@ -691,7 +670,7 @@ with st.container(border=True):
             else:
                 price = st.session_state.get("decided_price:NUGT") or st.session_state.get("price:NUGT")
             if not price:
-                st.warning("NUGTの決定価格がありません。Priceタブで取得し、または Use manual price をONにして手動価格を入力してください。")
+                st.warning("NUGTの決定価格がありません。Use manual price をONにして手動価格を入力してください。")
             else:
                 if is_live():
                     # ★ LIVEは同期実行：TWSに確実に注文送信（UIは数秒ブロック）
@@ -754,7 +733,8 @@ with st.container(border=True):
             else:
                 price = st.session_state.get("decided_price:TMF") or st.session_state.get("price:TMF")
             if not price:
-                st.warning("TMFの決定価格がありません。Priceタブで取得するか手動価格を使用してください。")
+                st.warning("TMFの決定価格がありません。右上の「Use manual price」をONにして手動価格を入力してください。")
+
             else:
                 if is_live():
                     # ★ LIVEは同期実行
@@ -814,7 +794,8 @@ with st.container(border=True):
             else:
                 price = st.session_state.get("decided_price:UVIX") or st.session_state.get("price:UVIX")
             if not price:
-                st.warning("UVIXの決定価格がありません。Priceタブで取得するか手動価格を使用してください。")
+                st.warning("UVIXの決定価格がありません。右上の「Use manual price」をONにして手動価格を入力してください。")
+
             else:
                 with st.spinner("Queueing UVIX plan…"):
                     jid = f"uvix-{int(pytime.time())}"
@@ -854,15 +835,19 @@ with st.container(border=True):
                 price_for_atm = st.session_state.get("decided_price:UVIX") or st.session_state.get("price:UVIX")
 
             if not price_for_atm:
-                st.warning("UVIXの決定価格がありません。Priceタブで取得するか手動価格を指定してください。")
+                st.warning("UVIXの決定価格がありません。右上の「Use manual price」をONにして手動価格を入力してください。")
+
             else:
                 # LIVE = 同期実行 / DRY = BGキュー投入（他銘柄と同じ運用）
                 if is_live():
                     with st.spinner("Placing UVIX (LIVE)…"):
                         try:
                             orders_log.info("[UI] UVIX BUY clicked (LIVE)")
+                            cli_live = get_client()
+                            if not cli_live or not cli_live.ib:
+                                raise RuntimeError("IB 未接続です")
                             msgs = run_put_long(
-                                ib=get_client().ib,
+                                ib=cast(IB, cli_live.ib),
                                 symbol="UVIX",
                                 contracts=int(contracts_uvix),
                                 manual_price=float(price_for_atm),
@@ -911,44 +896,7 @@ with st.container(border=True):
 
 # Logs の表示可否（サイドバーから操作したいならここをサイドバーにしてOK）
 show_logs = st.sidebar.checkbox("Show logs", value=True)
-
-# --- ここからタブ部分 丸ごと置換 ---------------------------------
-# Main tabs
-tab_price, tab1, tab2, tab3 = st.tabs(["Price (NUGT/TMF/UVIX/VIX)", "Account/Positions", "Open Orders", "Logs"])
-
-with tab_price:
-    st.subheader("Price – TWS『直近』相当（last → close）")
-    cli = get_client()
-    if not cli:
-        st.info("未接続です。左サイドバーから接続してください。")
-    else:
-        symbols = ["NUGT", "TMF", "UVIX", "VIX"]
-        col1, col2 = st.columns([1,1])
-        with col1:
-            if st.button("価格を更新（TWS準拠）", use_container_width=True):
-                try:
-                    prices = fetch_prices_tws_like(cli.ib, symbols, delay_type=int(md_type), timeout=2.0)
-                    for s in symbols:
-                        st.session_state[f"price:{s}"] = prices.get(s)
-                    st.success("価格更新しました。")
-                except Exception as e:
-                    log.exception("price fetch error")
-                    st.error(f"価格取得エラー: {e}")
-        with col2:
-            st.caption("TWSのウォッチリスト『直近』に合わせ、last→close の順で採用します。")
-
-        st.divider()
-        cols = st.columns(len(symbols))
-        for i, s in enumerate(symbols):
-            with cols[i]:
-                px = st.session_state.get(f"price:{s}")
-                st.metric(s, f"{px:.4f}" if px else "—")
-                if px:
-                    if st.button("採用", key=f"adopt_{s}", use_container_width=True):
-                        st.session_state[f"decided_price:{s}"] = float(px)
-                        st.success(f"{s} 決定価格を {px:.4f} に設定")
-
-
+tab1, tab2, tab3 = st.tabs(["Account/Positions", "Open Orders", "Logs"])
 with tab1:
     st.subheader("Account & Positions")
 
@@ -959,7 +907,7 @@ with tab1:
     else:
         # 表示更新ボタン
         if st.button("Refresh account / positions"):
-            st.experimental_rerun()
+            st.rerun()
 
         try:
             acct_rows, pos_rows, _ = get_account_snapshot()

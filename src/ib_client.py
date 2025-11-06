@@ -20,6 +20,7 @@ from ib_insync import IB, util, Contract, Ticker, Stock
 from .config import IBConfig
 from .utils.logger import get_logger
 from .utils.loop import ensure_event_loop
+from typing import Any, Awaitable, cast
 
 # ★ 追加：シンボルごとの primaryExchange オーバーライド
 EX_OVERRIDE = {
@@ -80,7 +81,7 @@ def wait_price(ib: IB, c: Contract, timeout: float = 12.0, poll: float = 0.25) -
 
     # 1) まずスナップショットで即取りにいく
     ticker = ib.reqMktData(c, "", True, False)  # snapshot=True
-    util.run(ib.sleep(min(2.0, timeout)))       # まずは短く待つ
+    util.run(cast(Awaitable[Any], ib.sleep(min(2.0, timeout))))  # まずは短く待つ
     px = resolve_price(ticker)
     if px:
         ib.cancelMktData(c)
@@ -93,7 +94,7 @@ def wait_price(ib: IB, c: Contract, timeout: float = 12.0, poll: float = 0.25) -
     # 進捗ログが要る場合はここで log.debug を入れてOK
     while time.time() < deadline:
         # Streamlit でも戻るように「短いsleep→値チェック」を繰り返す
-        util.run(ib.sleep(poll))
+        util.run(cast(Awaitable[Any], ib.sleep(poll)))
         px = resolve_price(ticker)
         if px:
             ib.cancelMktData(c)
@@ -121,6 +122,15 @@ class IBClient:
         base_id = int(self.cfg.client_id)
         last_err: Exception | None = None
 
+        # 既に接続済みなら何もしない
+        if self.ib and self.ib.isConnected():
+            try:
+                if market_data_type:
+                    self.ib.reqMarketDataType(market_data_type)
+            except Exception:
+                pass
+            return
+
         # ★ Streamlitのスレッドでループを再設定＋IBをここで生成
         import asyncio
         try:
@@ -134,7 +144,7 @@ class IBClient:
             cid = base_id + offset
             log.info(f"Connecting IB: host={self.cfg.host} port={self.cfg.port} clientId={cid}")
             try:
-                # 同期接続（戻り値は bool）。失敗時は False or 例外。
+                # 同期接続（戻り値は bool）
                 ok = self.ib.connect(
                     self.cfg.host,
                     int(self.cfg.port),
@@ -143,15 +153,21 @@ class IBClient:
                     readonly=False,
                 )
                 if ok and self.ib.isConnected():
-                    self.ib.reqMarketDataType(market_data_type)  # 1=RT,2=Frozen,3=Delayed,4=DelayedFrozen
+                    # 市場データ種別の設定は“成功扱い”から外す（失敗しても接続は維持）
+                    try:
+                        self.ib.reqMarketDataType(market_data_type)  # 1=RT,2=Frozen,3=Delayed,4=DelayedFrozen
+                    except Exception as e:
+                        log.warning(f"reqMarketDataType({market_data_type}) failed: {e}")
                     log.info(f"Connected (clientId={cid}, MDType={market_data_type})")
-                    self.cfg.client_id = cid
+                    # IBConfig は読み取り専用の可能性があるため、IBClient 側で保持
+                    self.client_id = cid
                     return
             except Exception as e:
                 last_err = e
-            # 次のIDで再挑戦前に明示切断
+            # 失敗した試行だけ切断して次へ
             try:
-                self.ib.disconnect()
+                if self.ib:
+                    self.ib.disconnect()
             except Exception:
                 pass
         raise RuntimeError(f"Failed to connect IB after trying {max_try_ids} clientIds") from last_err
@@ -165,23 +181,35 @@ class IBClient:
 
     def fetch_account_summary(self):
         ensure_event_loop()
+        ib = self.ib
+        if ib is None:
+            raise RuntimeError("Not connected")
         acct = getattr(self.cfg, "account", None)
-        return self.ib.accountSummary(acct) if acct else self.ib.accountSummary()
+        return ib.accountSummary(acct) if acct else ib.accountSummary()
 
     def fetch_positions(self):
         ensure_event_loop()
-        return self.ib.positions()
+        ib = self.ib
+        if ib is None:
+            raise RuntimeError("Not connected")
+        return ib.positions()
 
     def fetch_open_orders(self):
         ensure_event_loop()
-        return self.ib.openOrders()
+        ib = self.ib
+        if ib is None:
+            raise RuntimeError("Not connected")
+        return ib.openOrders()
 
     # --- [任意] シンボルを渡して価格だけ取るワンライナー ---
     def fetch_price_for(self, symbol: str, timeout: float = 12.0) -> tuple[float | None, Ticker, Contract]:
         ensure_event_loop()
+        ib = self.ib
+        if ib is None:
+            raise RuntimeError("Not connected")
         c = make_etf(symbol)
-        qc = qualify_or_raise(self.ib, c)
-        px, t = wait_price(self.ib, qc, timeout=timeout)
+        qc = qualify_or_raise(ib, c)
+        px, t = wait_price(ib, qc, timeout=timeout)
         return px, t, qc
 
     # ============================================================
