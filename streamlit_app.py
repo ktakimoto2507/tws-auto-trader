@@ -55,13 +55,12 @@ except Exception:
 from src.ib_client import IBClient  # noqa: E402
 from src.utils.logger import get_logger  # noqa: E402
 from src.ib.orders import StockSpec, bracket_buy_with_stop, decide_lmt_stop_take  # noqa: E402
-# UVIX P+ は専用ロジックをモジュールごと import（シンボル名違いでも実行時に getattr 可能）
-import src.ib.uvix_p_plus as uvix_p_plus  # noqa: E402  # type: ignore[reportMissingImports]
 from src.config import OrderPolicy  # noqa: E402
 from src.orders.manual_order import place_manual_order  # noqa: E402
-# ★ NUGT/TMF は strategies に移動
+# ★ 戦略系はすべて strategies 層経由
 from src.strategies.nugt_cc import run_nugt_cc  # noqa: E402
 from src.strategies.tmf_cc import run_tmf_cc   # noqa: E402
+from src.strategies.uvix_p_plus import run_uvix_p_plus, run_uvix_put_plan  # noqa: E402
 
 # 自動再描画（community版）。無ければフォールバック定義。
 try:
@@ -124,7 +123,7 @@ if "worker_started" not in st.session_state:
     st.session_state.worker_started = False
 
 def _dispatch_job(job: dict) -> list[str]:
-    """ジョブ種別に応じて戦略関数を呼び出す（NUGT/TMFはstrategies、UVIXはib.orders）"""
+    """ジョブ種別に応じて戦略関数を呼び出す（全て strategies 経由）"""
     kind = job.get("kind")
     args = job.get("args", {})
     if kind == "NUGT_CC":
@@ -132,10 +131,9 @@ def _dispatch_job(job: dict) -> list[str]:
     if kind == "TMF_CC":
         return run_tmf_cc(**args)
     if kind == "UVIX_PLAN":
-        return run_uvix_put_idea(**args)
+        return run_uvix_put_plan(**args)
     if kind == "UVIX_P_PLUS":
-        # 専用実装（uvix_p_plus）を必ず経由
-        return uvix_p_plus.run_put_long(**args)  # type: ignore[attr-defined]
+        return run_uvix_p_plus(**args)
     raise ValueError(f"Unknown job kind: {kind}")
 
 def _worker(job_q: queue.Queue, res: dict):
@@ -318,26 +316,6 @@ def next_weekly_times(ny_hour: int = 9, ny_minute: int = 35, weeks: int = 6):
     if base < now:
         base += timedelta(days=7)
     return [(base + timedelta(weeks=i), (base + timedelta(weeks=i)).astimezone(tz_local)) for i in range(weeks)]
-
-def run_uvix_put_idea(budget: float, ref: float) -> list[str]:
-    """
-    UVIX: ATMから+15%近辺のPUTを「買い」想定（まずはアイデア出しとDRYプレビューのみ）
-    - 例: ATM=10 → 11.5P
-    - 予算 60,000 USD, ロスカットなし（リスク限定はオプションプレミアム）
-    """
-    assert ref and ref > 0, "ref price is required"
-    px = float(ref)
-    target_strike = round(px * 1.15, 1)  # 0.1刻みに丸め（例から逆算）。取引所刻みに合わせて後で調整可。
-
-    # ここでは「どの契約・枚数を狙うか」を決めるだけ（IV/プレミアムは未取得）
-    msg = []
-    msg.append(f"UVIX: ATM≈{px:.2f} → target PUT strike≈{target_strike:.1f} (+15%)")
-    msg.append(f"Budget: {budget:,.0f} USD (no stop; premium-defined risk)")
-
-    # 実際のコン選定・買い発注は次段（buy_optionヘルパ追加）で実装。
-    # いまは UI/ログに“狙い”を明示しておく。
-    return msg
-
 
 # 5) UI
 st.set_page_config(page_title="IB TWS – AutoTrader", layout="wide")
@@ -589,20 +567,20 @@ with st.container(border=True):
                 st.session_state["decided_price:UVIX"] = price
             else:
                 price = st.session_state.get("decided_price:UVIX") or st.session_state.get("price:UVIX")
-            if not price:
-                st.warning("UVIXの決定価格がありません。右上の「Use manual price」をONにして手動価格を入力してください。")
-
-            else:
-                with st.spinner("Queueing UVIX plan…"):
-                    jid = f"uvix-{int(pytime.time())}"
-                    st.session_state.job_res[jid] = {"status": "queued", "logs": [], "ts": pytime.time()}
-                    st.session_state.job_q.put({
-                        "id": jid,
-                        "kind": "UVIX_PLAN",
-                        "args": {"budget": float(budget_uvix), "ref": float(price)}
-                    })
-                    st.session_state["latest_jid:UVIX"] = jid
-                st.info("UVIX PUT 設計をバックグラウンドに投入しました。")
+            # Plan は uvix_p_plus（core）の板情報から決定するため、ref は使用せず予算のみ渡す
+            with st.spinner("Queueing UVIX plan…"):
+                jid = f"uvix-{int(pytime.time())}"
+                st.session_state.job_res[jid] = {"status": "queued", "logs": [], "ts": pytime.time()}
+                st.session_state.job_q.put({
+                    "id": jid,
+                    "kind": "UVIX_PLAN",
+                    "args": {
+                        "budget": float(budget_uvix),
+                        "moneyness_pct": 0.15,  # 「+15% PUT (Plan)」に対応
+                    },
+                })
+                st.session_state["latest_jid:UVIX"] = jid
+            st.info("UVIX PUT 設計をバックグラウンドに投入しました。")
         jid_u = st.session_state.get("latest_jid:UVIX")
         if jid_u:
             meta = st.session_state.job_res.get(jid_u, {})
@@ -639,17 +617,16 @@ with st.container(border=True):
                     with st.spinner("Placing UVIX (LIVE)…"):
                         try:
                             orders_log.info("[UI] UVIX BUY clicked (LIVE)")
+                            # LIVE実行は strategies.run_uvix_p_plus 経由で uvix_p_plus コアを利用
                             cli_live = get_client()
-                            if not cli_live or not cli_live.ib:
+                            if not cli_live or not cli_live.ib or not cli_live.ib.isConnected():
                                 raise RuntimeError("IB 未接続です")
-                            msgs = uvix_p_plus.run_put_long(  # type: ignore[attr-defined]
-                                ib=cast(IB, cli_live.ib),
-                                symbol="UVIX",
+                            msgs = run_uvix_p_plus(
                                 contracts=int(contracts_uvix),
                                 manual_price=float(price_for_atm),
                                 pct_offset=float(pct_offset_uvix),
-                                dry_run=False,         # LIVE = 実送信
                                 oca_group=None,
+                                live=True,
                             )
                             for m in msgs or []:
                                 orders_log.info(m)
@@ -661,17 +638,16 @@ with st.container(border=True):
                     with st.spinner("Queueing UVIX (DRY)…"):
                         jid_buy = f"uvix-buy-{int(pytime.time())}"
                         st.session_state.job_res[jid_buy] = {"status": "queued", "logs": [], "ts": pytime.time()}
-                        # ★ DRYでは ib を渡さない（スレッド間共有を避ける）
+                        # ★ DRY も strategies.run_uvix_p_plus を BG ワーカーから実行
                         st.session_state.job_q.put({
                             "id": jid_buy,
                             "kind": "UVIX_P_PLUS",
                             "args": {
-                                "symbol": "UVIX",
                                 "contracts": int(contracts_uvix),
                                 "manual_price": float(price_for_atm),
                                 "pct_offset": float(pct_offset_uvix),
-                                "dry_run": True,
                                 "oca_group": None,
+                                "live": False,
                             }
                         })
                         st.session_state["latest_jid:UVIX_BUY"] = jid_buy
