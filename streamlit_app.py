@@ -61,6 +61,7 @@ from src.orders.manual_order import place_manual_order  # noqa: E402
 from src.strategies.nugt_cc import run_nugt_cc  # noqa: E402
 from src.strategies.tmf_cc import run_tmf_cc   # noqa: E402
 from src.strategies.uvix_p_plus import run_uvix_p_plus, run_uvix_put_plan  # noqa: E402
+from src import appctx  # noqa: E402
 
 # 自動再描画（community版）。無ければフォールバック定義。
 try:
@@ -181,12 +182,14 @@ if not st.session_state.worker_started:
 
 # 3) IBクライアント（接続）のセッション再利用
 def get_client() -> IBClient | None:
-    """接続済みなら返す。未接続なら None。"""
-    return st.session_state.get("ib_client")
+    """接続済みなら返す。未接続なら None。appctx 経由で取得。"""
+    cli = appctx.get_client()
+    return cli  # 型が気になるなら cast(IBClient | None, cli) でもOK
 
 # LIVE/DRY を一元管理
 def is_live() -> bool:
-    return bool(st.session_state.get("live_orders", False))
+    """現在の LIVE/DRY 状態を appctx から取得。"""
+    return appctx.is_live()
 
 # 4) ヘルパ
 def tail_log(path: Path, n: int = 200) -> str:
@@ -324,7 +327,7 @@ colH1, colH2 = st.columns([1, 0.22])
 with colH1:
     st.title("IB TWS – AutoTrader (Dashboard)")
 with colH2:
-    cli_badge = st.session_state.get("ib_client")
+    cli_badge = get_client()  # ★ ここを変更
     is_conn = bool(cli_badge and cli_badge.ib and cli_badge.ib.isConnected())
     st.markdown(
         f"<div style='text-align:right;padding-top:14px'>"
@@ -362,7 +365,7 @@ if colA.button("Connect"):
         try:
             ensure_event_loop()                           # ← 追加
             cli.connect(market_data_type=int(md_type))
-            st.session_state["ib_client"] = cli
+            appctx.set_client(cli)  # ★ 追加（or 差し替え）
             # ★ 一度だけ IB の errorEvent をフックして、TWS 側の拒否も必ずログ化
             if not st.session_state.get("_ib_error_hooked") and cli.ib is not None:
                 def _on_ib_error(reqId, code, msg, **kw):
@@ -391,16 +394,18 @@ if colB.button("Disconnect"):
     cli = get_client()
     if cli:
         cli.disconnect()
-        st.session_state.pop("ib_client", None)
-        st.info("Disconnected")
+    appctx.set_client(None)  # ★ 追加：グローバル/セッションの両方をクリア
+    st.session_state.pop("ib_client", None)  # （お好みで残してOK／削除してもOK）
+    st.info("Disconnected")
 
 # === DRY/LIVE 切替（サイドバー・トグル） ===
 live_toggle = st.sidebar.toggle(
     "LIVE orders (Paper/Real)",
-    value=False,
+    value=appctx.is_live(),  # ★ 現在値を appctx から
     help="OFF=DRY RUN（注文は送らない） / ON=実注文（Paper/RealはTWSのログインに依存）",
 )
-st.session_state["live_orders"] = bool(live_toggle)
+appctx.set_live(live_toggle)  # ★ これだけで session_state も _CTX も更新される
+# st.session_state["live_orders"] = bool(live_toggle)  # ← appctx.set_live がやるので不要
 if live_toggle:
     st.sidebar.warning("LIVE モードです。注文は実際に送信されます。")
 
